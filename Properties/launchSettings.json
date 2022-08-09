@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "VNLib.WebServer": {
+      "commandName": "Project",
+      "commandLineArgs": "-v --rpmalloc",
+      "nativeDebugging": true
+    }
+  }
+}

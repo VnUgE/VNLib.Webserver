@@ -27,7 +27,7 @@ using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.Content;
 using VNLib.Plugins.Essentials.Sessions;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
-using VNLib.Utils;
+using System.Transactions;
 
 /*
  * Arguments
@@ -88,8 +88,7 @@ namespace VNLib.WebServer
         private const string PLUGINS_PROP_NAME = "plugins";
 
         private const string SERVER_WHITELIST_PROP_NAME = "whitelist";
-
-        delegate IntPtr HeapCreate(long flOptions, ulong dwInitialSize, ulong dwMaximumSize);
+       
 
         static int Main(string[] args)
         {
@@ -129,8 +128,8 @@ namespace VNLib.WebServer
             }
             ApplicationLog.Verbose("Loading virtual hosts");
             //Get web roots
-            List<BasicServerRoot> allRoots = LoadRoots(config, ApplicationLog);
-            if (allRoots == null)
+            List<VirtualHost> allHosts = new();
+            if (!LoadRoots(config, ApplicationLog, allHosts))
             {
                 ApplicationLog.Error("No virtual hosts were defined, exiting");
                 return 0;
@@ -138,7 +137,7 @@ namespace VNLib.WebServer
             //Get new server list
             List<HttpServer> servers = new();
             //Load non-ssl servers
-            InitServers(servers, allRoots, SystemLog, http.Value);
+            InitServers(servers, allHosts, SystemLog, http.Value);
             //Setup cancelation source to cancel running services 
             using CancellationTokenSource cancelSource = new();
 
@@ -155,7 +154,7 @@ namespace VNLib.WebServer
             }
             List<WebPluginLoader> plugins = new();
             //Load plugins
-            LoadPlugins(plugins, config, ApplicationLog, allRoots);
+            LoadPlugins(plugins, config, ApplicationLog, allHosts);
             //Register cancelation to unload plugins (and oauth2 if loaded)
             cancelSource.Token.Register(() =>
             {
@@ -170,7 +169,7 @@ namespace VNLib.WebServer
             });
             using ManualResetEventSlim ShutdownEvent = new(false);
             //Register console cancel to cause cleanup
-            Console.CancelKeyPress += (object sender, ConsoleCancelEventArgs e) =>
+            Console.CancelKeyPress += (object? sender, ConsoleCancelEventArgs e) =>
             {
                 e.Cancel = true;
                 ShutdownEvent.Set();
@@ -327,6 +326,7 @@ namespace VNLib.WebServer
             //Configure the log file writer
             logConfig.WriteTo.File(filePath, buffered: true, outputTemplate: template);
         }
+        
         #endregion
        
         /// <summary>
@@ -335,12 +335,11 @@ namespace VNLib.WebServer
         /// <param name="config">The application configuration to load</param>
         /// <param name="log"></param>
         /// <returns>A list of <see cref="WebRoot"/>s that make up the server endpoints</returns>
-        private static List<BasicServerRoot> LoadRoots(JsonDocument config, ILogProvider log)
+        private static bool LoadRoots(JsonDocument config, ILogProvider log, ICollection<VirtualHost> hosts)
         {
             try
             {
-                List<BasicServerRoot> roots = new();
-                //Enumerate all roots
+                //Enumerate all virtual hosts
                 foreach (JsonElement rootEl in config.RootElement.GetProperty(HOSTS_CONFIG_PROP_NAME).EnumerateArray())
                 {
                     //Get root config as dict
@@ -353,7 +352,7 @@ namespace VNLib.WebServer
                     //Setup a default service interface
                     IPEndPoint serverEndpoint = DefaultInterface;
                     {
-                        //Get the interface binding for this site
+                        //Get the interface binding for this host
                         if (rootConf.TryGetValue(SERVER_ENDPOINT_PROP_NAME, out JsonElement interfaceEl))
                         {
                             //Get the stored IP address
@@ -439,7 +438,7 @@ namespace VNLib.WebServer
                     //Get root exec timeout
                     uint timeoutMs = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetUInt32();
                     //Create a new server root 
-                    BasicServerRoot root = new(rootPath, hostname, log, (int) timeoutMs)
+                    VirtualHost root = new(rootPath, hostname, log, (int) timeoutMs)
                     {
                         //Set optional whitelist
                         WhiteList = whiteList,
@@ -462,10 +461,10 @@ namespace VNLib.WebServer
                         defaultFiles = new(defaultFiles)
                     };
                     //Add root to the list
-                    roots.Add(root);
+                    hosts.Add(root);
                     log.Information("Found virtual host {ep} on {if}, with TLS {tls}, upstream servers {us}", hostname, serverEndpoint, cert != null, upstreamServers);
                 }
-                return roots;
+                return true;
             }
             catch (KeyNotFoundException kne)
             {
@@ -479,7 +478,7 @@ namespace VNLib.WebServer
             {
                 log.Error(ex);
             }
-            return null;
+            return false;
         }
        
         /// <summary>
@@ -539,7 +538,7 @@ namespace VNLib.WebServer
         /// <param name="roots">An enumeration of all sites/roots to route incomming connections</param>
         /// <param name="sysLog">The "system" logger</param>
         /// <param name="httpConf">The http configuraiton to use when initializing servers</param>
-        private static void InitServers(List<HttpServer> servers, IEnumerable<BasicServerRoot> roots, ILogProvider sysLog, HttpConfig httpConf)
+        private static void InitServers(List<HttpServer> servers, IEnumerable<VirtualHost> roots, ILogProvider sysLog, HttpConfig httpConf)
         {
             //Get a distinct list of the server interfaces that are required to setup hosts
             IEnumerable<IPEndPoint> interfaces = (from root in roots select root.ServerEndpoint).Distinct();
@@ -547,9 +546,9 @@ namespace VNLib.WebServer
             {
                 SslServerAuthenticationOptions? sslAuthOptions = null;
                 //get all roots that use the same Ip/port
-                IEnumerable<BasicServerRoot> rootsForEp = (from root in roots where root.ServerEndpoint.Equals(serverEp) select root);
+                IEnumerable<VirtualHost> rootsForEp = (from root in roots where root.ServerEndpoint.Equals(serverEp) select root);
                 //Get all roots for the specified endpoints that have certificates
-                IEnumerable<BasicServerRoot> sslRoots = (from root in rootsForEp where root.Certificate != null select root);
+                IEnumerable<VirtualHost> sslRoots = (from root in rootsForEp where root.Certificate != null select root);
                 //See if any ssl roots are configured
                 if (sslRoots.Any())
                 {
@@ -599,7 +598,7 @@ namespace VNLib.WebServer
 
         static readonly string PluginFileExtension = OperatingSystem.IsWindows() ? ".dll" : ".so";
 
-        private static void LoadPlugins(List<WebPluginLoader> plugins, JsonDocument config, ILogProvider appLog, IEnumerable<BasicServerRoot> roots)
+        private static void LoadPlugins(List<WebPluginLoader> plugins, JsonDocument config, ILogProvider appLog, IEnumerable<VirtualHost> hosts)
         {
             //Try to get the plugin configuration
             if(!config.RootElement.TryGetProperty(PLUGINS_PROP_NAME, out JsonElement pluginEl))
@@ -622,13 +621,13 @@ namespace VNLib.WebServer
             //Enumerate all dll files within this dir
             IEnumerable<DirectoryInfo> dirs = dir.EnumerateDirectories("*", SearchOption.TopDirectoryOnly);
             //Select only dirs with a dll that is named after the directory name
-            IEnumerable<string> pluginPaths = dirs.Where(pdir =>
+            IEnumerable<string> pluginPaths = dirs.Where(static pdir =>
             {
                 string FilePath = Path.ChangeExtension(Path.Combine(pdir.FullName, pdir.Name), PluginFileExtension);
                 return FileOperations.FileExists(FilePath);
             })
             //Return the name of the dll file to import
-            .Select(pdir =>
+            .Select(static pdir =>
             {
                 return Path.ChangeExtension(Path.Combine(pdir.FullName, pdir.Name), PluginFileExtension);
             });
@@ -642,12 +641,12 @@ namespace VNLib.WebServer
                     {
                         await plugin.InitLoaderAsync();
                         //Load all endpoints
-                        plugin.LoadEndpoints(roots);
+                        plugin.LoadEndpoints(hosts);
                         //Listen for reload events to remove and re-add endpoints
                         plugin.Reloaded += delegate (object? sender, List<LivePlugin> lp)
                         {
                             WebPluginLoader wpl = (sender as WebPluginLoader)!;
-                            wpl.LoadEndpoints(roots);
+                            wpl.LoadEndpoints(hosts);
                         };
                         //Add to list
                         plugins.Add(plugin);
@@ -669,9 +668,9 @@ namespace VNLib.WebServer
                                                  select pp)
                                                 .SingleOrDefault();
                 //Method to load sessions to all roots
-                static void LoadSessions(IEnumerable<BasicServerRoot> roots, ISessionProvider provider)
+                static void LoadSessions(IEnumerable<VirtualHost> roots, ISessionProvider provider)
                 {
-                    foreach (BasicServerRoot root in roots)
+                    foreach (VirtualHost root in roots)
                     {
                         root.SetSessionProvider(provider);
                     }
@@ -685,17 +684,17 @@ namespace VNLib.WebServer
                     sessionLoader.RegisterListenerForSingle(delegate (ISessionProvider current, ISessionProvider loaded)
                     {
                         //Reload the provider
-                        LoadSessions(roots, loaded);
+                        LoadSessions(hosts, loaded);
                     });
                     //Load sessions
-                    LoadSessions(roots, sp);
+                    LoadSessions(hosts, sp);
                 }
             }
             //Loader for the page router
             {
-                static void LoadRouter(IEnumerable<BasicServerRoot> roots, IPageRouter router)
+                static void LoadRouter(IEnumerable<VirtualHost> roots, IPageRouter router)
                 {
-                    foreach (BasicServerRoot root in roots)
+                    foreach (VirtualHost root in roots)
                     {
                         root.SetPageRouter(router);
                     }
@@ -712,19 +711,19 @@ namespace VNLib.WebServer
                     //Reigster reload listener
                     routerLoader.RegisterListenerForSingle(delegate (IPageRouter current, IPageRouter newRouter)
                     {
-                        LoadRouter(roots, newRouter);
+                        LoadRouter(hosts, newRouter);
                     });
                     //Load the current router
-                    LoadRouter(roots, router);
+                    LoadRouter(hosts, router);
                 }
             }
         }
 
 
-        internal static void LoadEndpoints(this WebPluginLoader loader, IEnumerable<BasicServerRoot> roots)
+        internal static void LoadEndpoints(this WebPluginLoader loader, IEnumerable<VirtualHost> roots)
         {
             foreach (var (endpoint, root) in from IEndpoint endpoint in loader.GetEndpoints()
-                                             from BasicServerRoot root in roots
+                                             from VirtualHost root in roots
                                              select (endpoint, root))
             {
                 //remove previous endpoints if set

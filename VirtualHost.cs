@@ -20,7 +20,7 @@ using VNLib.Plugins.Essentials.Extensions;
 
 namespace VNLib.WebServer
 {
-    internal sealed class BasicServerRoot : EventProcessor
+    internal sealed class VirtualHost : EventProcessor
     {
         private const int FILE_PATH_BUILDER_BUFFER_SIZE = 4096;
 
@@ -98,7 +98,7 @@ namespace VNLib.WebServer
         ///<inheritdoc/>
         public override IReadOnlySet<IPAddress> UpstreamServers => upstreamServers;
 #nullable disable
-        public BasicServerRoot(string path, string hostName, ILogProvider log, int timeoutMs) : base(log)
+        public VirtualHost(string path, string hostName, ILogProvider log, int timeoutMs) : base(log)
         {
             Root = new DirectoryInfo(path);
             if (!Root.Exists)
@@ -117,7 +117,7 @@ namespace VNLib.WebServer
             //Make sure the connection accepts html
             if (ev.Server.Accepts(ContentType.Html) && FailureFiles.TryGetValue(errorCode, out FailureFile? ff))
             {
-                ev.Server.SetCache(CacheType.NoCache | CacheType.NoStore, TimeSpan.Zero);
+                ev.Server.NoCache();
                 ev.CloseResponse(errorCode, ContentType.Html, ff.File);
                 return true;
             }
@@ -249,7 +249,7 @@ namespace VNLib.WebServer
                     {
                         ReadOnlySpan<char> filePath = entity.Server.Path.AsSpan();
                         //disable cache
-                        entity.Server.SetCache(CacheType.NoCache | CacheType.NoStore, TimeSpan.Zero);
+                        entity.Server.SetNoCache();
                         //If the file is an html file or does not include an extension (inferred html) 
                         ext = Path.GetExtension(filePath);
                     }
@@ -292,20 +292,14 @@ namespace VNLib.WebServer
             }
         }
 
-        private static readonly string NoCacheCacheControl = HttpHelpers.GetCacheString(CacheType.NoCache | CacheType.NoStore | CacheType.Revalidate);
-
         private readonly Lazy<string> DefaultCacheString;
 
         private void SetCache(in HttpEntity entity, ContentType ct)
         {
             //If request issued no cache request, set nocache headers
-            if (entity.Server.NoCache())
+            if (!entity.Server.NoCache())
             {
-                entity.Server.Headers[HttpResponseHeader.Pragma] = "no-cache";
-                entity.Server.Headers[HttpResponseHeader.CacheControl] = NoCacheCacheControl;
-            }
-            else
-            {
+                //Otherwise set caching based on the file extension type
                 switch (ct)
                 {
                     case ContentType.Css:
@@ -319,15 +313,15 @@ namespace VNLib.WebServer
                     case ContentType.Avif:
                     case ContentType.Gif:
                         entity.Server.Headers[HttpResponseHeader.CacheControl] = DefaultCacheString.Value;
-                        break;
+                        return;
                     case ContentType.NonSupported:
-                        break;
+                        return;
                     default:
-                        entity.Server.Headers[HttpResponseHeader.Pragma] = "no-cache";
-                        entity.Server.Headers[HttpResponseHeader.CacheControl] = NoCacheCacheControl;
+                        entity.Server.SetNoCache();
                         break;
                 }
             }
+            entity.Server.SetNoCache();
         }
     }
 }

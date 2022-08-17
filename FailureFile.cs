@@ -11,7 +11,7 @@ namespace VNLib.WebServer
     /// </summary>
     internal class FailureFile : InMemoryTemplate
     {
-        public readonly HttpStatusCode Code;       
+        public readonly HttpStatusCode Code;
        
         /// <summary>
         /// Returns refrence to a buffer contating the file data

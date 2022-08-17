@@ -117,7 +117,7 @@ namespace VNLib.WebServer
             //Make sure the connection accepts html
             if (ev.Server.Accepts(ContentType.Html) && FailureFiles.TryGetValue(errorCode, out FailureFile? ff))
             {
-                ev.Server.NoCache();
+                ev.Server.SetNoCache();
                 ev.CloseResponse(errorCode, ContentType.Html, ff.File);
                 return true;
             }
@@ -174,6 +174,33 @@ namespace VNLib.WebServer
                 Log.Verbose("Client {ip} is not whitelisted, blocked", entity.TrustedRemoteIp);
                 return FileProcessArgs.Deny;
             }
+            /*
+             * Upstream server will handle the transport security,
+             * if the connection is not from an upstream server 
+             * and is using transport security then we can specify HSTS
+             */
+            if (entity.IsSecure && HSTSHeader != null)
+            {
+                entity.Server.Headers["Strict-Transport-Security"] = HSTSHeader;
+            }
+            //Always set refer policy
+            if (RefererPolicy != null)
+            {
+                entity.Server.Headers["Referrer-Policy"] = RefererPolicy;
+            }
+            //Check for cors mode
+            if (AllowCors && entity.Server.IsCors())
+            {
+                //set the allow credentials header
+                entity.Server.Headers["Access-Control-Allow-Credentials"] = "true";
+                //If cross site flag is set, or the connection has cross origin flag set, set explicit origin
+                if (entity.Server.CrossOrigin || entity.Server.IsCrossSite() && entity.Server.Origin != null)
+                {
+                    entity.Server.Headers["Access-Control-Allow-Origin"] = $"{entity.Server.RequestUri.Scheme}://{entity.Server.Origin!.Authority}";
+                    //Add origin to the response vary header when setting cors origin
+                    entity.Server.Headers[HttpResponseHeader.Vary] = "Origin";
+                }
+            }
             if (!entity.Session.IsSet || !entity.Server.IsBrowser())
             {
                 return FileProcessArgs.Continue;
@@ -193,33 +220,6 @@ namespace VNLib.WebServer
                 //Redirect
                 entity.Redirect(RedirectType.Moved, ub.Uri);
                 return FileProcessArgs.VirtualSkip;
-            }
-            //Check for cors mode
-            if (AllowCors && entity.Server.IsCors())
-            {
-                //set the allow credentials header
-                entity.Server.Headers["Access-Control-Allow-Credentials"] = "true";
-                //If cross site flag is set, or the connection has cross origin flag set, set explicit origin
-                if (entity.Server.CrossOrigin || entity.Server.IsCrossSite() && entity.Server.Origin != null)
-                {
-                    entity.Server.Headers["Access-Control-Allow-Origin"] = $"{entity.Server.RequestUri.Scheme}://{entity.Server.Origin!.Authority}";
-                    //Add origin to the response vary header when setting cors origin
-                    entity.Server.Headers[HttpResponseHeader.Vary] = "Origin";
-                }
-            }
-            //Always set refer policy
-            if (RefererPolicy != null)
-            {
-                entity.Server.Headers["Referrer-Policy"] = RefererPolicy;
-            }
-            /*
-             * Upstream server will handle the transport security,
-             * if the connection is not from an upstream server 
-             * and is using transport security then we can specify HSTS
-             */
-            if (entity.IsSecure && HSTSHeader != null)
-            {
-                entity.Server.Headers["Strict-Transport-Security"] = HSTSHeader;
             }
             return FileProcessArgs.Continue;
         }

@@ -27,7 +27,6 @@ using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.Content;
 using VNLib.Plugins.Essentials.Sessions;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
-using System.Transactions;
 
 /*
  * Arguments
@@ -88,6 +87,8 @@ namespace VNLib.WebServer
         private const string PLUGINS_PROP_NAME = "plugins";
 
         private const string SERVER_WHITELIST_PROP_NAME = "whitelist";
+
+        private const string LOAD_DEFAULT_HOSTNAME_VALUE = "[system]";
        
 
         static int Main(string[] args)
@@ -348,7 +349,11 @@ namespace VNLib.WebServer
                     //Get the hostname and path of the root
                     string? hostname = rootConf[SERVER_HOSTNAME_PROP_NAME].GetString();
                     string? rootPath = rootConf[SERVER_ROOT_PATH_PROP_NAME].GetString();
-
+                    //Default hostname setup
+                    {
+                        //If the hostname value is exactly the matching path, then replace it for the dns hostname
+                        hostname = hostname?.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName());
+                    }
                     //Setup a default service interface
                     IPEndPoint serverEndpoint = DefaultInterface;
                     {

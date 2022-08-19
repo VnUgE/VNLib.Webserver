@@ -27,6 +27,7 @@ using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.Content;
 using VNLib.Plugins.Essentials.Sessions;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
+using System.Security.Authentication;
 
 /*
  * Arguments
@@ -127,7 +128,7 @@ namespace VNLib.WebServer
             {
                 return -1;
             }
-            ApplicationLog.Verbose("Loading virtual hosts");
+            ApplicationLog.Information("Loading virtual hosts");
             //Get web roots
             List<VirtualHost> allHosts = new();
             if (!LoadRoots(config, ApplicationLog, allHosts))
@@ -558,9 +559,9 @@ namespace VNLib.WebServer
                 if (sslRoots.Any())
                 {
                     //Setup a cert lookup for all roots that defined certs
-                    Dictionary<string, X509Certificate> certLookup = sslRoots.ToDictionary(root => root.Hostname, root => root.Certificate)!;
+                    IReadOnlyDictionary<string, X509Certificate> certLookup = sslRoots.ToDictionary(root => root.Hostname, root => root.Certificate)!;
                     //If the wildcard hostname is set save a local copy
-                    X509Certificate defaultCert = certLookup.GetValueOrDefault("*", null);
+                    X509Certificate? defaultCert = certLookup.GetValueOrDefault("*", null);
                     //Build the server auth options
                     sslAuthOptions = new()
                     {
@@ -570,7 +571,8 @@ namespace VNLib.WebServer
                             // use the default cert if the hostname is not specified
                             return certLookup.GetValueOrDefault(hostName, defaultCert);
                         },
-                        AllowRenegotiation = true,
+                        EncryptionPolicy = EncryptionPolicy.RequireEncryption,
+                        EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
                         RemoteCertificateValidationCallback = delegate (object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
                         {
                             return true;

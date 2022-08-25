@@ -63,7 +63,7 @@ namespace VNLib.WebServer
         /// <summary>
         /// Sets the site's referrer policy header
         /// </summary>
-        public string RefererPolicy { get; init; }
+        public string? RefererPolicy { get; init; }
         /// <summary>
         /// The default response entity cache value
         /// </summary>
@@ -108,7 +108,7 @@ namespace VNLib.WebServer
             Hostname = hostName;
             OperationTimeout = TimeSpan.FromMilliseconds(timeoutMs);
             //Inint default cache string
-            DefaultCacheString = new(() => HttpHelpers.GetCacheString(CacheType.Public, (int)CacheDefault.TotalSeconds), false);
+            DefaultCacheString = new(() => HttpHelpers.GetCacheString(CacheType.Public, (int)CacheDefault.TotalSeconds));
         }
 #nullable enable
 

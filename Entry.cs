@@ -11,6 +11,7 @@ using System.IO.Compression;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Security.Authentication;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography.X509Certificates;
 
@@ -27,7 +28,7 @@ using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.Content;
 using VNLib.Plugins.Essentials.Sessions;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
-using System.Security.Authentication;
+using System.Security.Cryptography;
 
 /*
  * Arguments
@@ -107,7 +108,7 @@ namespace VNLib.WebServer
             InitConsoleLog(args, sysLogConfig, "System");
             InitConsoleLog(args, appLogConfig, "Application");
             //try to load the json configuration file
-            using JsonDocument config = LoadConfig(args);
+            using JsonDocument? config = LoadConfig(args);
             if (config == null)
             {
                 appLogConfig.CreateLogger().Error("No configuration file was found");
@@ -272,7 +273,7 @@ namespace VNLib.WebServer
         /// </summary>
         /// <param name="args">The command-line-arguments</param>
         /// <returns>A new <see cref="JsonDocument"/> that contains the application configuration</returns>
-        private static JsonDocument LoadConfig(string[] args)
+        private static JsonDocument? LoadConfig(string[] args)
         {
             //Search for a configuration file path in argument
             int index = args.ToList().IndexOf("--config") + 1;

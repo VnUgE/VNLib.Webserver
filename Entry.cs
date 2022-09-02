@@ -28,7 +28,6 @@ using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.Content;
 using VNLib.Plugins.Essentials.Sessions;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
-using System.Security.Cryptography;
 
 /*
  * Arguments
@@ -36,8 +35,9 @@ using System.Security.Cryptography;
  * -v --verbose
  * -d --debug
  * -vv double verbose mode (logs all app-domain events)
- * -s --silent silent logging mode, does not pring logs to the console, only to output files
+ * -s --silent silent logging mode, does not print logs to the console, only to output files
  * --log-http prints raw http requests to the application log
+ * --rpmalloc to force enable the rpmalloc library loading for the Memory class
  */
 
 #nullable enable
@@ -66,7 +66,7 @@ namespace VNLib.WebServer
       
         private const string HOSTS_CONFIG_PROP_NAME = "virtual_hosts";
         private const string SERVER_ERROR_FILE_PROP_NAME = "error_files";
-
+        
         private const string SERVER_ENDPOINT_PROP_NAME = "interface";
         private const string SERVER_ENDPOINT_PORT_PROP_NAME = "port";
         private const string SERVER_ENDPOINT_IP_PROP_NAME = "address";
@@ -285,7 +285,13 @@ namespace VNLib.WebServer
             }
             //Open the config file
             using FileStream fs = new(configPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
-            return JsonDocument.Parse(fs);
+            //Allow comments
+            JsonDocumentOptions jdo = new()
+            {
+                CommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true,
+            };
+            return JsonDocument.Parse(fs, jdo);
         }
         #endregion
 
@@ -560,7 +566,7 @@ namespace VNLib.WebServer
                 if (sslRoots.Any())
                 {
                     //Setup a cert lookup for all roots that defined certs
-                    IReadOnlyDictionary<string, X509Certificate> certLookup = sslRoots.ToDictionary(root => root.Hostname, root => root.Certificate)!;
+                    IReadOnlyDictionary<string, X509Certificate?> certLookup = sslRoots.ToDictionary(root => root.Hostname, root => root.Certificate)!;
                     //If the wildcard hostname is set save a local copy
                     X509Certificate? defaultCert = certLookup.GetValueOrDefault("*", null);
                     //Build the server auth options
@@ -570,7 +576,7 @@ namespace VNLib.WebServer
                         ServerCertificateSelectionCallback = delegate (object sender, string? hostName)
                         {
                             // use the default cert if the hostname is not specified
-                            return certLookup.GetValueOrDefault(hostName, defaultCert);
+                            return certLookup.GetValueOrDefault(hostName!, defaultCert)!;
                         },
                         EncryptionPolicy = EncryptionPolicy.RequireEncryption,
                         EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,

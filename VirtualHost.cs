@@ -15,6 +15,8 @@ using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
 using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.Extensions;
+using VNLib.Plugins.Essentials.Sessions;
+using VNLib.Plugins.Essentials.Accounts;
 
 #nullable enable
 
@@ -69,9 +71,7 @@ namespace VNLib.WebServer
         /// </summary>
         public TimeSpan CacheDefault { get; init; }       
         public ReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; }
-
-        ///<inheritdoc/>
-        public override bool AllowCors { get => allowCors; }
+      
         ///<inheritdoc/>
         public override string Hostname { get; }
         ///<inheritdoc/>
@@ -161,7 +161,7 @@ namespace VNLib.WebServer
             return sb.ToString();
         }
 
-        public override FileProcessArgs PreProcessEntity(in HttpEntity entity)
+        public override FileProcessArgs PreProcessEntity(HttpEntity entity)
         {
             //Block websocket requests
             if (entity.Server.IsWebSocketRequest)
@@ -188,39 +188,82 @@ namespace VNLib.WebServer
             {
                 entity.Server.Headers["Referrer-Policy"] = RefererPolicy;
             }
-            //Check for cors mode
-            if (AllowCors && entity.Server.IsCors())
+
+            //Check coors enabled
+            bool isCors = entity.Server.IsCors();
+            /*
+             * Deny/allow cross site/cors requests at the site-level
+             */
+            if (allowCors)
             {
-                //set the allow credentials header
-                entity.Server.Headers["Access-Control-Allow-Credentials"] = "true";
-                //If cross site flag is set, or the connection has cross origin flag set, set explicit origin
-                if (entity.Server.CrossOrigin || entity.Server.IsCrossSite() && entity.Server.Origin != null)
+                if (isCors)
                 {
-                    entity.Server.Headers["Access-Control-Allow-Origin"] = $"{entity.Server.RequestUri.Scheme}://{entity.Server.Origin!.Authority}";
-                    //Add origin to the response vary header when setting cors origin
-                    entity.Server.Headers[HttpResponseHeader.Vary] = "Origin";
+                    //set the allow credentials header
+                    entity.Server.Headers["Access-Control-Allow-Credentials"] = "true";
+                    //If cross site flag is set, or the connection has cross origin flag set, set explicit origin
+                    if (entity.Server.CrossOrigin || entity.Server.IsCrossSite() && entity.Server.Origin != null)
+                    {
+                        entity.Server.Headers["Access-Control-Allow-Origin"] = $"{entity.Server.RequestUri.Scheme}://{entity.Server.Origin!.Authority}";
+                        //Add origin to the response vary header when setting cors origin
+                        entity.Server.Headers.Append(HttpResponseHeader.Vary, "Origin");
+                    }
+                }
+
+                //Add sec vary headers for cors enabled sites
+                entity.Server.Headers.Append(HttpResponseHeader.Vary, "Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site");
+            }
+            else
+            {
+                if(isCors || entity.Server.IsCrossSite())
+                {
+                    return FileProcessArgs.Deny;
                 }
             }
-            if (!entity.Session.IsSet || !entity.Server.IsBrowser())
+
+            //If user-navigation is set and method is get, make sure it does not contain object/embed
+            if (entity.Server.IsNavigation() && entity.Server.Method == HttpMethod.GET)
             {
-                return FileProcessArgs.Continue;
-            }
-            /*
-             * Check if the session was established over a secure connection, 
-             * and if the current connection is insecure, redirect them to a 
-             * secure connection.
-             */
-            if (entity.Session.SecurityProcol > SslProtocols.None && !entity.Server.IsSecure)
-            {
-                //Redirect the client to https
-                UriBuilder ub = new(entity.Server.RequestUri)
+                string? dest = entity.Server.Headers["sec-fetch-dest"];
+                if(dest != null && (dest.Contains("object", StringComparison.OrdinalIgnoreCase) || dest.Contains("embed")))
                 {
-                    Scheme = Uri.UriSchemeHttps
-                };
-                //Redirect
-                entity.Redirect(RedirectType.Moved, ub.Uri);
-                return FileProcessArgs.VirtualSkip;
+                    return FileProcessArgs.Deny;
+                }
             }
+
+            if (entity.Session.IsSet)
+            {
+                /*
+                * Check if the session was established over a secure connection, 
+                * and if the current connection is insecure, redirect them to a 
+                * secure connection.
+                */
+                if (entity.Session.SecurityProcol > SslProtocols.None && !entity.IsSecure)
+                {
+                    //Redirect the client to https
+                    UriBuilder ub = new(entity.Server.RequestUri)
+                    {
+                        Scheme = Uri.UriSchemeHttps
+                    };
+                    //Redirect
+                    entity.Redirect(RedirectType.Moved, ub.Uri);
+                    return FileProcessArgs.VirtualSkip;
+                }
+                //If session is not new, then verify it matches stored credentials
+                if (!entity.Session.IsNew && entity.Session.SessionType == SessionType.Web)
+                {
+                    if (!(entity.Session.IPMatch 
+                        && entity.Session.UserAgent.Equals(entity.Server.UserAgent, StringComparison.Ordinal)
+                        && entity.Session.SecurityProcol <= entity.Server.SecurityProtocol)
+                    )
+                    {
+                        return FileProcessArgs.Deny;
+                    }
+                }
+
+                //Reconcile cookies with the session
+                entity.ReconcileCookies();
+               
+            }           
             return FileProcessArgs.Continue;
         }
 
@@ -234,7 +277,7 @@ namespace VNLib.WebServer
             return base.RouteFileAsync(entity);
         }
 
-        public override void PostProcessFile(in HttpEntity entity, in FileProcessArgs chosenRoutine)
+        public override void PostProcessFile(HttpEntity entity, in FileProcessArgs chosenRoutine)
         {
             //Set some protection headers
             entity.Server.Headers["X-Content-Type-Options"] = "nonsniff";
@@ -262,7 +305,7 @@ namespace VNLib.WebServer
                         ext = Path.GetExtension(filePath);
                         //Set default cache
                         ContentType ct = HttpHelpers.GetContentTypeFromFile(filePath);
-                        SetCache(in entity, ct);
+                        SetCache(entity, ct);
                     }
                     break;
                 default:
@@ -273,28 +316,28 @@ namespace VNLib.WebServer
                         if (ext.IsEmpty)
                         {
                             //If no extension, use .html extension
-                            SetCache(in entity, ContentType.Html);
+                            SetCache(entity, ContentType.Html);
                         }
                         else
                         {
                             //Set default cache
                             ContentType ct = HttpHelpers.GetContentTypeFromFile(filePath);
-                            SetCache(in entity, ct);
+                            SetCache(entity, ct);
                         }
                     }
                     break;
             }
             if (ext.IsEmpty || ext.Equals(".html", StringComparison.OrdinalIgnoreCase))
             {
-                entity.Server.Headers["X-XSS-Protection"] = "1; mode=block;";
+                entity.Server.Headers.Append("X-XSS-Protection:", "1; mode=block;");
                 //Setup content-security policy
-                entity.Server.Headers["Content-Security-Policy"] = ContentSecurityPolicy;
+                entity.Server.Headers.Append("Content-Security-Policy:", ContentSecurityPolicy);
             }
         }
 
         private readonly Lazy<string> DefaultCacheString;
 
-        private void SetCache(in HttpEntity entity, ContentType ct)
+        private void SetCache(HttpEntity entity, ContentType ct)
         {
             //If request issued no cache request, set nocache headers
             if (!entity.Server.NoCache())

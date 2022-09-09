@@ -551,7 +551,7 @@ namespace VNLib.WebServer
         /// <param name="roots">An enumeration of all sites/roots to route incomming connections</param>
         /// <param name="sysLog">The "system" logger</param>
         /// <param name="httpConf">The http configuraiton to use when initializing servers</param>
-        private static void InitServers(List<HttpServer> servers, IEnumerable<VirtualHost> roots, ILogProvider sysLog, HttpConfig httpConf)
+        private static void InitServers(List<HttpServer> servers, IEnumerable<VirtualHost> roots, ILogProvider sysLog, in HttpConfig httpConf)
         {
             //Get a distinct list of the server interfaces that are required to setup hosts
             IEnumerable<IPEndPoint> interfaces = (from root in roots select root.ServerEndpoint).Distinct();

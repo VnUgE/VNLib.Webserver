@@ -29,6 +29,7 @@ using VNLib.Plugins.Essentials.Content;
 using VNLib.Plugins.Essentials.Sessions;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
 
+using VNLib.WebServer.Transport;
 /*
  * Arguments
  * --config <config_path>
@@ -52,13 +53,16 @@ namespace VNLib.WebServer
 
         private static readonly TCPConfig BaseTcpConfig = new()
         {
-            AcceptThreads = (uint)12,
+            AcceptThreads = 24 * 2,
             InitialReceiveTimeout = 2000,
             KeepaliveInterval = 4,
             TcpKeepalive = false,
             ListenerPriority = ThreadPriority.Normal,
             TcpKeepAliveTime = 4,
             CacheQuota = 0,
+            //Allow 100k per connection to be pre-loaded
+            MaxRecvBufferData = 64 * 1024,
+            BackLog = 1000
         };
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
@@ -101,6 +105,7 @@ namespace VNLib.WebServer
                 //Set initial env to use the rpmalloc allocator for the default heaps
                 Environment.SetEnvironmentVariable(Memory.SHARED_HEAP_TYPE_ENV, "rpmalloc", EnvironmentVariableTarget.Process);
             }
+            //ThreadPool.SetMaxThreads(32, 32);
             //Setup logger configs
             LoggerConfiguration sysLogConfig = new();
             LoggerConfiguration appLogConfig = new();
@@ -522,12 +527,15 @@ namespace VNLib.WebServer
                     MaxUploadSize = httpEl["max_entity_size"].GetInt32(),
                     TransportKeepalive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),
                     HeaderBufferSize = httpEl["header_buf_size"].GetInt32(),
-                    ActiveSocketRecvTimeout = (int)TimeSpan.FromSeconds(10).TotalMilliseconds,
+                    ActiveConnectionRecvTimeout = httpEl["recv_timout_ms"].GetInt32(),
                     MaxRequestHeaderCount = httpEl["max_request_header_count"].GetInt32(),
                     MaxOpenConnections = httpEl["max_connections"].GetInt32(),
+                    ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
+                    ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
+                    HttpCookieCharBufferSize = httpEl["respones_cookie_buf_size"].GetInt32(),
+                    DiscardBufferSize = httpEl["request_discard_buf_size"].GetInt32(),
+
                     HttpEncoding = Encoding.ASCII,
-                    DiscardBufferSize = 64 * 1024,
-                    ResponseHeaderBufferSize = 16 * 1024
                 };
                 return conf.DefaultHttpVersion == HttpVersion.NotSupported
                     ? throw new Exception("default_version is invalid, specify an RFC formatted http version 'HTTP/x.x'")
@@ -543,6 +551,7 @@ namespace VNLib.WebServer
             }
             return null;
         }
+        
         /// <summary>
         /// Initializes all HttpServers that may use secure 
         /// or insecure transport.
@@ -587,7 +596,7 @@ namespace VNLib.WebServer
                     };
                 }
                 //Init a new TCP config
-                TCPConfig tcp = new()
+                TCPConfig tcpConf = new()
                 {
                     LocalEndPoint = serverEp,
                     Log = sysLog,
@@ -599,8 +608,13 @@ namespace VNLib.WebServer
                     KeepaliveInterval = BaseTcpConfig.KeepaliveInterval,
                     ListenerPriority = BaseTcpConfig.ListenerPriority,
                     TcpKeepalive = BaseTcpConfig.TcpKeepalive,
-                    CacheQuota = BaseTcpConfig.CacheQuota
+                    CacheQuota = BaseTcpConfig.CacheQuota,
+                    MaxRecvBufferData = BaseTcpConfig.MaxRecvBufferData,
+                    BackLog = BaseTcpConfig.BackLog,
+                    BufferPool = new ProcessHeap().ToPool<byte>()
                 };
+                //Init new tcp server
+                TcpTransportProvider tcp = new(tcpConf);
                 //Create the new server
                 HttpServer server = new(httpConf, tcp, rootsForEp);
                 //Add the server to the list

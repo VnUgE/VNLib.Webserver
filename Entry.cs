@@ -22,7 +22,7 @@ using VNLib.Utils.Memory;
 using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
 using VNLib.Net.Http;
-using VNLib.Net.Transport;
+using VNLib.Net.Transport.Tcp;
 using VNLib.Plugins;
 using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.Content;
@@ -30,16 +30,17 @@ using VNLib.Plugins.Essentials.Sessions;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
 
 using VNLib.WebServer.Transport;
+using VNLib.WebServer.TcpMemoryPool;
 /*
- * Arguments
- * --config <config_path>
- * -v --verbose
- * -d --debug
- * -vv double verbose mode (logs all app-domain events)
- * -s --silent silent logging mode, does not print logs to the console, only to output files
- * --log-http prints raw http requests to the application log
- * --rpmalloc to force enable the rpmalloc library loading for the Memory class
- */
+* Arguments
+* --config <config_path>
+* -v --verbose
+* -d --debug
+* -vv double verbose mode (logs all app-domain events)
+* -s --silent silent logging mode, does not print logs to the console, only to output files
+* --log-http prints raw http requests to the application log
+* --rpmalloc to force enable the rpmalloc library loading for the Memory class
+*/
 
 #nullable enable
 
@@ -255,6 +256,9 @@ namespace VNLib.WebServer
             };
             //Start listener thread
             consoleListener.Start();
+
+            ApplicationLog.Verbose("Main thread waiting for exit signal");
+                
             //Wait for process cleanup/exit
             ShutdownEvent.Wait();
 
@@ -263,11 +267,6 @@ namespace VNLib.WebServer
             cancelSource.Cancel();
             //Wait for all plugins to unload and cleanup (temporary)
             Thread.Sleep(500);
-            //Cleanup servers
-            foreach (HttpServer server in servers)
-            {
-                server.Dispose();
-            }
             return 0;
         }
 
@@ -298,6 +297,7 @@ namespace VNLib.WebServer
             };
             return JsonDocument.Parse(fs, jdo);
         }
+        
         #endregion
 
         #region Logging
@@ -348,7 +348,7 @@ namespace VNLib.WebServer
         /// </summary>
         /// <param name="config">The application configuration to load</param>
         /// <param name="log"></param>
-        /// <returns>A list of <see cref="WebRoot"/>s that make up the server endpoints</returns>
+        /// <remarks>A value that indicates if roots we loaded correctly, or false if errors occured and could not be loaded</remarks>
         private static bool LoadRoots(JsonDocument config, ILogProvider log, ICollection<VirtualHost> hosts)
         {
             try
@@ -504,7 +504,6 @@ namespace VNLib.WebServer
         /// from the application config
         /// </summary>
         /// <param name="config">The application config</param>
-        /// <param name="sessions">The session config to use</param>
         /// <param name="sysLog">The "system" logger</param>
         /// <param name="appLog">The "application" logger</param>
         /// <returns>Null if the configuration object is unusable, a new <see cref="HttpConfig"/> struct if parsing was successful</returns>
@@ -611,7 +610,8 @@ namespace VNLib.WebServer
                     CacheQuota = BaseTcpConfig.CacheQuota,
                     MaxRecvBufferData = BaseTcpConfig.MaxRecvBufferData,
                     BackLog = BaseTcpConfig.BackLog,
-                    BufferPool = new ProcessHeap().ToPool<byte>()
+                    //Init buffer pool
+                    BufferPool = PoolManager.GetPool<byte>()
                 };
                 //Init new tcp server
                 TcpTransportProvider tcp = new(tcpConf);
@@ -687,8 +687,12 @@ namespace VNLib.WebServer
                 }
                 loading.Add(Load());
             }
+            appLog.Verbose("Waiting for enabled plugins to load");
             //wait for loading to completed
             Task.WaitAll(loading.ToArray());
+
+            appLog.Verbose("Plugins loaded");
+            
             {
                 //get the loader that contains the single session provider
                 WebPluginLoader? sessionLoader = (from pp in plugins
@@ -750,14 +754,15 @@ namespace VNLib.WebServer
 
         internal static void LoadEndpoints(this WebPluginLoader loader, IEnumerable<VirtualHost> roots)
         {
-            foreach (var (endpoint, root) in from IEndpoint endpoint in loader.GetEndpoints()
-                                             from VirtualHost root in roots
-                                             select (endpoint, root))
+            //Get endpoints for current loader
+            IEndpoint[] eps = loader.GetEndpoints().ToArray();
+            //Loop through hosts
+            foreach(VirtualHost root in roots)
             {
-                //remove previous endpoints if set
-                root.RemoveEndpoint(endpoint);
-                //Add the new endpoint
-                root.AddEndpoint(endpoint);
+                //Remove endpoints
+                root.RemoveEndpoint(eps);
+                //Re-add endpoints
+                root.AddEndpoint(eps);
             }
         }
 
@@ -771,6 +776,8 @@ namespace VNLib.WebServer
             //If double verbose is specified, log app-domain messages
             if (args.Contains("-vv"))
             {
+                log.Verbose("Double verbose mode enabled, registering app-domain listeners");
+                    
                 currentDomain.FirstChanceException += delegate (object? sender, FirstChanceExceptionEventArgs e)
                 {
                     log.Verbose("Exception occured in app-domain {mess}", e.Exception.Message);

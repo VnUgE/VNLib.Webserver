@@ -97,8 +97,12 @@ namespace VNLib.WebServer
         
         ///<inheritdoc/>
         public override IReadOnlySet<IPAddress> UpstreamServers => upstreamServers;
+
+        ///<inheritdoc/>
+        protected override ILogProvider Log { get; }
+
 #nullable disable
-        public VirtualHost(string path, string hostName, ILogProvider log, int timeoutMs) : base(log)
+        public VirtualHost(string path, string hostName, ILogProvider log, int timeoutMs)
         {
             Root = new DirectoryInfo(path);
             if (!Root.Exists)
@@ -109,6 +113,7 @@ namespace VNLib.WebServer
             OperationTimeout = TimeSpan.FromMilliseconds(timeoutMs);
             //Inint default cache string
             DefaultCacheString = new(() => HttpHelpers.GetCacheString(CacheType.Public, (int)CacheDefault.TotalSeconds));
+            Log = log;
         }
 #nullable enable
 
@@ -163,6 +168,7 @@ namespace VNLib.WebServer
 
         public override FileProcessArgs PreProcessEntity(HttpEntity entity)
         {
+            entity.Server.Headers[HttpResponseHeader.Server] = "VNLib.Http/1.1";
             //Block websocket requests
             if (entity.Server.IsWebSocketRequest)
             {

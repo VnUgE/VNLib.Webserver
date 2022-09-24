@@ -7,7 +7,7 @@ using System.Security.Authentication;
 using System.Runtime.CompilerServices;
 
 using VNLib.Net.Http;
-using VNLib.Net.Transport;
+using VNLib.Net.Transport.Tcp;
 
 namespace VNLib.WebServer.Transport
 {

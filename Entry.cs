@@ -531,7 +531,7 @@ namespace VNLib.WebServer
                     MaxOpenConnections = httpEl["max_connections"].GetInt32(),
                     ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
                     ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
-                    HttpCookieCharBufferSize = httpEl["respones_cookie_buf_size"].GetInt32(),
+                    HttpCookieCharBufferSize = httpEl["response_cookie_buf_size"].GetInt32(),
                     DiscardBufferSize = httpEl["request_discard_buf_size"].GetInt32(),
 
                     HttpEncoding = Encoding.ASCII,
@@ -651,17 +651,21 @@ namespace VNLib.WebServer
             //Select only dirs with a dll that is named after the directory name
             IEnumerable<string> pluginPaths = dirs.Where(static pdir =>
             {
-                string FilePath = Path.ChangeExtension(Path.Combine(pdir.FullName, pdir.Name), PluginFileExtension);
+                string compined = Path.Combine(pdir.FullName, pdir.Name);
+                string FilePath = string.Concat(compined, PluginFileExtension);
                 return FileOperations.FileExists(FilePath);
             })
             //Return the name of the dll file to import
             .Select(static pdir =>
             {
-                return Path.ChangeExtension(Path.Combine(pdir.FullName, pdir.Name), PluginFileExtension);
+                string compined = Path.Combine(pdir.FullName, pdir.Name);
+                return string.Concat(compined, PluginFileExtension);
             });
             List<Task> loading = new();
             foreach (string pluginPath in pluginPaths)
             {
+                appLog.Verbose("Found plugin file {file}", Path.GetFileName(pluginPath));
+
                 async Task Load()
                 {
                     WebPluginLoader plugin = new(pluginPath, config, appLog, hotReload, hotReload);

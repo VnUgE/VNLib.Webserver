@@ -335,9 +335,9 @@ namespace VNLib.WebServer
             }
             if (ext.IsEmpty || ext.Equals(".html", StringComparison.OrdinalIgnoreCase))
             {
-                entity.Server.Headers.Append("X-XSS-Protection:", "1; mode=block;");
+                entity.Server.Headers.Append("X-XSS-Protection", "1; mode=block;");
                 //Setup content-security policy
-                entity.Server.Headers.Append("Content-Security-Policy:", ContentSecurityPolicy);
+                entity.Server.Headers.Append("Content-Security-Policy", ContentSecurityPolicy);
             }
         }
 

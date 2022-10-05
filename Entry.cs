@@ -66,6 +66,12 @@ namespace VNLib.WebServer
             BackLog = 1000
         };
 
+        private static readonly List<SslApplicationProtocol> SslAppProtocols = new()
+        {
+            SslApplicationProtocol.Http11,
+            SslApplicationProtocol.Http2,
+        };
+
         private const string DEFAULT_CONFIG_PATH = "config.json";
         private const string DEFUALT_PLUGIN_DIR = "plugins";
       
@@ -106,7 +112,6 @@ namespace VNLib.WebServer
                 //Set initial env to use the rpmalloc allocator for the default heaps
                 Environment.SetEnvironmentVariable(Memory.SHARED_HEAP_TYPE_ENV, "rpmalloc", EnvironmentVariableTarget.Process);
             }
-            //ThreadPool.SetMaxThreads(32, 32);
             //Setup logger configs
             LoggerConfiguration sysLogConfig = new();
             LoggerConfiguration appLogConfig = new();
@@ -550,7 +555,8 @@ namespace VNLib.WebServer
             }
             return null;
         }
-        
+      
+
         /// <summary>
         /// Initializes all HttpServers that may use secure 
         /// or insecure transport.
@@ -573,6 +579,8 @@ namespace VNLib.WebServer
                 //See if any ssl roots are configured
                 if (sslRoots.Any())
                 {
+                    
+                    
                     //Setup a cert lookup for all roots that defined certs
                     IReadOnlyDictionary<string, X509Certificate?> certLookup = sslRoots.ToDictionary(root => root.Hostname, root => root.Certificate)!;
                     //If the wildcard hostname is set save a local copy
@@ -591,7 +599,9 @@ namespace VNLib.WebServer
                         RemoteCertificateValidationCallback = delegate (object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
                         {
                             return true;
-                        }
+                        },
+                        ApplicationProtocols = SslAppProtocols,
+                        AllowRenegotiation = false,
                     };
                 }
                 //Init a new TCP config

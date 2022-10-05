@@ -180,6 +180,13 @@ namespace VNLib.WebServer
                 Log.Verbose("Client {ip} is not whitelisted, blocked", entity.TrustedRemoteIp);
                 return FileProcessArgs.Deny;
             }
+            
+            //Check transport security if set
+            if(entity.Server.TransportSecurity.HasValue)
+            {
+                
+            }
+
             /*
              * Upstream server will handle the transport security,
              * if the connection is not from an upstream server 

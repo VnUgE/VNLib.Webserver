@@ -525,6 +525,7 @@ namespace VNLib.WebServer
                     RequestDebugLog = args.Contains("--log-http") ? appLog : null,
                     CompressionLevel = (CompressionLevel)httpEl["compression_level"].GetInt32(),
                     CompressionLimit = httpEl["compression_limit"].GetInt32(),
+                    CompressionMinimum = httpEl["compression_minimum"].GetInt32(),
                     DefaultHttpVersion = HttpHelpers.ParseHttpVersion(httpEl["default_version"].GetString()),
                     FormDataBufferSize = httpEl["multipart_max_buffer"].GetInt32(),
                     MaxFormDataUploadSize = httpEl["multipart_max_size"].GetInt32(),

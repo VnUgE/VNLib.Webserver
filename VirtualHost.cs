@@ -166,7 +166,7 @@ namespace VNLib.WebServer
             return sb.ToString();
         }
 
-        public override FileProcessArgs PreProcessEntity(HttpEntity entity)
+        public override ValueTask<FileProcessArgs> PreProcessEntityAsync(HttpEntity entity)
         {
             entity.Server.Headers[HttpResponseHeader.Server] = "VNLib.Http/1.1";
             //Block websocket requests
@@ -178,7 +178,7 @@ namespace VNLib.WebServer
             if (WhiteList != null && !WhiteList.Contains(entity.TrustedRemoteIp))
             {
                 Log.Verbose("Client {ip} is not whitelisted, blocked", entity.TrustedRemoteIp);
-                return FileProcessArgs.Deny;
+                return new(FileProcessArgs.Deny);
             }
             
             //Check transport security if set
@@ -229,7 +229,7 @@ namespace VNLib.WebServer
             {
                 if(isCors || entity.Server.IsCrossSite())
                 {
-                    return FileProcessArgs.Deny;
+                    return new(FileProcessArgs.Deny);
                 }
             }
 
@@ -239,7 +239,7 @@ namespace VNLib.WebServer
                 string? dest = entity.Server.Headers["sec-fetch-dest"];
                 if(dest != null && (dest.Contains("object", StringComparison.OrdinalIgnoreCase) || dest.Contains("embed")))
                 {
-                    return FileProcessArgs.Deny;
+                    return new(FileProcessArgs.Deny);
                 }
             }
 
@@ -259,7 +259,7 @@ namespace VNLib.WebServer
                     };
                     //Redirect
                     entity.Redirect(RedirectType.Moved, ub.Uri);
-                    return FileProcessArgs.VirtualSkip;
+                    return new(FileProcessArgs.VirtualSkip);
                 }
                 //If session is not new, then verify it matches stored credentials
                 if (!entity.Session.IsNew && entity.Session.SessionType == SessionType.Web)
@@ -269,7 +269,7 @@ namespace VNLib.WebServer
                         && entity.Session.SecurityProcol <= entity.Server.SecurityProtocol)
                     )
                     {
-                        return FileProcessArgs.Deny;
+                        return new(FileProcessArgs.Deny);
                     }
                 }
 
@@ -277,7 +277,7 @@ namespace VNLib.WebServer
                 entity.ReconcileCookies();
                
             }           
-            return FileProcessArgs.Continue;
+            return new(FileProcessArgs.Continue);
         }
 
         protected override ValueTask<FileProcessArgs> RouteFileAsync(HttpEntity entity)

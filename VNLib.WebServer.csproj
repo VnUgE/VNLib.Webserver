@@ -8,7 +8,7 @@
     <RootNamespace>VNLib.WebServer</RootNamespace>
     <Authors>Vaughn Nugent</Authors>
     <Description>A complete .NET 6 Web server using VNLib.HTTP</Description>
-    <Copyright>Copyright Vaughn Nugent (C) 2022</Copyright>
+    <Copyright>Copyright © 2022 Vaughn Nugent</Copyright>
     <Version>1.0.0.1</Version>
     <PackageProjectUrl>www.vaughnnugent.com/resources</PackageProjectUrl>
   </PropertyGroup>
@@ -67,7 +67,7 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="start xcopy &quot;$(TargetDir)&quot; &quot;\\vaughnnugent.com\Internal\Vaughns Folder\Programming\LiveWebServer/$(TargetName)&quot; /E /Y /R /Z /V /F" />
+    <Exec Command="start xcopy &quot;$(TargetDir)&quot; &quot;\\vaughnnugent.com\Internal\Vaughns Folder\Programming\LiveWebServer/$(TargetName)&quot; /E /Y /R /Z /V /F /exclude:$(ProjectDir)\exclude.txt" />
   </Target>
 
 </Project>

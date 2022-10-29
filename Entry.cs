@@ -48,6 +48,14 @@ namespace VNLib.WebServer
 {
     static class Entry
     {
+        const string STARTUP_MESSAGE =
+@"VNLib Copyright (C) 2022 Vaughn Nugent
+This program comes with ABSOLUTELY NO WARRANTY.
+Licensing for this software and other libraries can be found at https://www.vaughnnugent.com/resources/vnlib
+Starting...
+";
+
+
         private static readonly DirectoryInfo EXE_DIR = new(Environment.CurrentDirectory);
         private static readonly IPEndPoint DefaultInterface = new(IPAddress.Any, 80);
         private static readonly Regex DefaultRootRegex = new(@"(\/\.\.)|(\\\.\.)|[\[\]^*<>|`~'\n\r\t\n]|(\s$)|^(\s)", RegexOptions.Compiled);
@@ -55,10 +63,8 @@ namespace VNLib.WebServer
         private static readonly TCPConfig BaseTcpConfig = new()
         {
             AcceptThreads = 24 * 2,
-            InitialReceiveTimeout = 2000,
             KeepaliveInterval = 4,
             TcpKeepalive = false,
-            ListenerPriority = ThreadPriority.Normal,
             TcpKeepAliveTime = 4,
             CacheQuota = 0,
             //Allow 100k per connection to be pre-loaded
@@ -69,7 +75,7 @@ namespace VNLib.WebServer
         private static readonly List<SslApplicationProtocol> SslAppProtocols = new()
         {
             SslApplicationProtocol.Http11,
-            SslApplicationProtocol.Http2,
+            //SslApplicationProtocol.Http2,
         };
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
@@ -112,6 +118,9 @@ namespace VNLib.WebServer
                 //Set initial env to use the rpmalloc allocator for the default heaps
                 Environment.SetEnvironmentVariable(Memory.SHARED_HEAP_TYPE_ENV, "rpmalloc", EnvironmentVariableTarget.Process);
             }
+
+            Console.WriteLine(STARTUP_MESSAGE);
+
             //Setup logger configs
             LoggerConfiguration sysLogConfig = new();
             LoggerConfiguration appLogConfig = new();
@@ -333,17 +342,46 @@ namespace VNLib.WebServer
         {
             string? filePath = null;
             string? template = null;
+            
+            TimeSpan flushInterval = TimeSpan.FromSeconds(2);
+            int retainedLogs = 31;
+            //Default to 500mb log file size
+            int fileSizeLimit = 500 * 1000 * 1024;
+            RollingInterval interval = RollingInterval.Infinite;
+
             //try to get the log config object
-            if(config.RootElement.TryGetProperty(elPath, out JsonElement logEl))
+            if (config.RootElement.TryGetProperty(elPath, out JsonElement logEl))
             {
-                filePath = logEl.GetPropString("path");
-                template = logEl.GetPropString("template");
+                IReadOnlyDictionary<string, JsonElement> conf = logEl.EnumerateObject().ToDictionary(s => s.Name, s => s.Value);
+
+                filePath = conf.GetPropString("path");
+                template = conf.GetPropString("template");
+
+                if (conf.TryGetValue("flush_sec", out JsonElement flushEl))
+                {
+                    flushInterval = flushEl.GetTimeSpan(TimeParseType.Seconds);
+                }
+
+                if (conf.TryGetValue("retained_files", out JsonElement retainedEl))
+                {
+                    retainedLogs = retainedEl.GetInt32();
+                }
+
+                if (conf.TryGetValue("file_size_limit", out JsonElement sizeEl))
+                {
+                    fileSizeLimit = sizeEl.GetInt32();
+                }
+
+                if (conf.TryGetValue("interval", out JsonElement intervalEl))
+                {
+                    interval = Enum.Parse<RollingInterval>(intervalEl.GetString()!, true);
+                }
             }
             //Set default objects
-            filePath ??= Path.Combine(EXE_DIR.FullName, $"{elPath}.txt");
+            filePath ??= Path.Combine(Environment.CurrentDirectory, $"{elPath}.txt");
             template ??= $"{{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}} [{{Level:u3}}] {logName} {{Message:lj}}{{NewLine}}{{Exception}}";
             //Configure the log file writer
-            logConfig.WriteTo.File(filePath, buffered: true, outputTemplate: template);
+            logConfig.WriteTo.File(filePath, buffered: true, retainedFileCountLimit:retainedLogs, fileSizeLimitBytes:fileSizeLimit, rollingInterval:interval, outputTemplate: template);
         }
         
         #endregion
@@ -537,8 +575,8 @@ namespace VNLib.WebServer
                     MaxOpenConnections = httpEl["max_connections"].GetInt32(),
                     ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
                     ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
-                    HttpCookieCharBufferSize = httpEl["response_cookie_buf_size"].GetInt32(),
                     DiscardBufferSize = httpEl["request_discard_buf_size"].GetInt32(),
+                    ChunkedResponseAccumulatorSize = 64 * 1024,
 
                     HttpEncoding = Encoding.ASCII,
                 };
@@ -613,10 +651,8 @@ namespace VNLib.WebServer
                     AuthenticationOptions = sslAuthOptions,
                     //Copy from base config
                     AcceptThreads = BaseTcpConfig.AcceptThreads,
-                    InitialReceiveTimeout = BaseTcpConfig.InitialReceiveTimeout,
                     TcpKeepAliveTime = BaseTcpConfig.TcpKeepAliveTime,
                     KeepaliveInterval = BaseTcpConfig.KeepaliveInterval,
-                    ListenerPriority = BaseTcpConfig.ListenerPriority,
                     TcpKeepalive = BaseTcpConfig.TcpKeepalive,
                     CacheQuota = BaseTcpConfig.CacheQuota,
                     MaxRecvBufferData = BaseTcpConfig.MaxRecvBufferData,

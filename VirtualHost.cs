@@ -14,9 +14,9 @@ using VNLib.Utils.Memory;
 using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
 using VNLib.Plugins.Essentials;
-using VNLib.Plugins.Essentials.Extensions;
 using VNLib.Plugins.Essentials.Sessions;
 using VNLib.Plugins.Essentials.Accounts;
+using VNLib.Plugins.Essentials.Extensions;
 
 #nullable enable
 
@@ -26,8 +26,8 @@ namespace VNLib.WebServer
     {
         private const int FILE_PATH_BUILDER_BUFFER_SIZE = 4096;
 
-        internal readonly DirectoryInfo Root;      
-        public ReadOnlyCollection<string> defaultFiles { get; init; }        
+        internal readonly DirectoryInfo Root;
+        public ReadOnlyCollection<string> defaultFiles { get; init; }
         public HashSet<string> excludedExtensions { get; init; }
         /// <summary>
         /// A collection of trusted upstream servers
@@ -69,7 +69,7 @@ namespace VNLib.WebServer
         /// <summary>
         /// The default response entity cache value
         /// </summary>
-        public TimeSpan CacheDefault { get; init; }       
+        public TimeSpan CacheDefault { get; init; }
         public ReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; }
       
         ///<inheritdoc/>
@@ -112,12 +112,12 @@ namespace VNLib.WebServer
             Hostname = hostName;
             OperationTimeout = TimeSpan.FromMilliseconds(timeoutMs);
             //Inint default cache string
-            DefaultCacheString = new(() => HttpHelpers.GetCacheString(CacheType.Public, (int)CacheDefault.TotalSeconds));
+            DefaultCacheString = new(() => HttpHelpers.GetCacheString(CacheType.Public, (int)CacheDefault.TotalSeconds), false);
             Log = log;
         }
 #nullable enable
 
-        public override bool ErrorHandler(HttpStatusCode errorCode, HttpEvent ev)
+        public override bool ErrorHandler(HttpStatusCode errorCode, IHttpEvent ev)
         {
             //Make sure the connection accepts html
             if (ev.Server.Accepts(ContentType.Html) && FailureFiles.TryGetValue(errorCode, out FailureFile? ff))
@@ -136,7 +136,7 @@ namespace VNLib.WebServer
             //Alloc temp buffer from the shared heap, 
             using UnsafeMemoryHandle<char> charBuffer = Memory.UnsafeAlloc<char>(FILE_PATH_BUILDER_BUFFER_SIZE);
             //Buffer writer
-            VnBufferWriter<char> sb = new(charBuffer.Span);
+            ForwardOnlyWriter<char> sb = new(charBuffer.Span);
             //Start with the root filename
             sb.Append(Root.FullName);
             //Supply a "leading" dir separator character 
@@ -178,7 +178,7 @@ namespace VNLib.WebServer
             if (WhiteList != null && !WhiteList.Contains(entity.TrustedRemoteIp))
             {
                 Log.Verbose("Client {ip} is not whitelisted, blocked", entity.TrustedRemoteIp);
-                return new(FileProcessArgs.Deny);
+                return ValueTask.FromResult(FileProcessArgs.Deny);
             }
             
             //Check transport security if set
@@ -229,7 +229,7 @@ namespace VNLib.WebServer
             {
                 if(isCors || entity.Server.IsCrossSite())
                 {
-                    return new(FileProcessArgs.Deny);
+                    return ValueTask.FromResult(FileProcessArgs.Deny);
                 }
             }
 
@@ -239,7 +239,7 @@ namespace VNLib.WebServer
                 string? dest = entity.Server.Headers["sec-fetch-dest"];
                 if(dest != null && (dest.Contains("object", StringComparison.OrdinalIgnoreCase) || dest.Contains("embed")))
                 {
-                    return new(FileProcessArgs.Deny);
+                    return ValueTask.FromResult(FileProcessArgs.Deny);
                 }
             }
 
@@ -259,7 +259,7 @@ namespace VNLib.WebServer
                     };
                     //Redirect
                     entity.Redirect(RedirectType.Moved, ub.Uri);
-                    return new(FileProcessArgs.VirtualSkip);
+                    return ValueTask.FromResult(FileProcessArgs.VirtualSkip);
                 }
                 //If session is not new, then verify it matches stored credentials
                 if (!entity.Session.IsNew && entity.Session.SessionType == SessionType.Web)
@@ -269,7 +269,7 @@ namespace VNLib.WebServer
                         && entity.Session.SecurityProcol <= entity.Server.SecurityProtocol)
                     )
                     {
-                        return new(FileProcessArgs.Deny);
+                        return ValueTask.FromResult(FileProcessArgs.Deny);
                     }
                 }
 
@@ -277,7 +277,7 @@ namespace VNLib.WebServer
                 entity.ReconcileCookies();
                
             }           
-            return new(FileProcessArgs.Continue);
+            return ValueTask.FromResult(FileProcessArgs.Continue);
         }
 
         protected override ValueTask<FileProcessArgs> RouteFileAsync(HttpEntity entity)
@@ -285,7 +285,8 @@ namespace VNLib.WebServer
             //Only process the file if the connection is a browser
             if (!entity.Server.IsBrowser() || entity.Server.Method != HttpMethod.GET)
             {
-                return new ValueTask<FileProcessArgs>(FileProcessArgs.Deny);
+                entity.CloseResponse(HttpStatusCode.Forbidden);
+                return ValueTask.FromResult(FileProcessArgs.VirtualSkip);
             }
             return base.RouteFileAsync(entity);
         }

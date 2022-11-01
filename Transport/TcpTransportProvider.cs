@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
+
 #nullable enable
 
 namespace VNLib.WebServer.Transport
@@ -31,8 +32,9 @@ namespace VNLib.WebServer.Transport
             //Wait for tcp event and wrap in ctx class
             TransportEventContext ctx = await _server.AcceptAsync(cancellation);
             //Wrap event
-            return new TcpTransportContext(_server, in ctx);
+            return new TcpTransportContext(in ctx);
         }
+        
         ///<inheritdoc/>
         void ITransportProvider.Start(CancellationToken stopToken)
         {
@@ -46,14 +48,12 @@ namespace VNLib.WebServer.Transport
         class TcpTransportContext : ITransportContext
         {
             private readonly TransportEventContext _eventContext;
-            private readonly TcpServer _server;
 
             private readonly Lazy<TransportSecurityInfo>? _securityInfo;
 
-            public TcpTransportContext(TcpServer server, in TransportEventContext ctx)
+            public TcpTransportContext(in TransportEventContext ctx)
             {
                 _eventContext = ctx;
-                _server = server;
 
                 //Only set the sec info lazy if the connection is secure
                 if (ctx.SslVersion > SslProtocols.None)
@@ -127,7 +127,7 @@ namespace VNLib.WebServer.Transport
             async ValueTask ITransportContext.CloseConnectionAsync()
             {
                 //Close the connection with the TCP server
-                await _server.CloseConnectionAsync(_eventContext);
+                await _eventContext.CloseConnectionAsync();
             }
 
             

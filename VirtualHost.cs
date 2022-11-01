@@ -169,11 +169,13 @@ namespace VNLib.WebServer
         public override ValueTask<FileProcessArgs> PreProcessEntityAsync(HttpEntity entity)
         {
             entity.Server.Headers[HttpResponseHeader.Server] = "VNLib.Http/1.1";
+            
             //Block websocket requests
             if (entity.Server.IsWebSocketRequest)
             {
                 Log.Verbose("Client {ip} made a websocket request", entity.TrustedRemoteIp);
             }
+            
             //If a whitelist has been defined, block requests from non-whitelisted IPs
             if (WhiteList != null && !WhiteList.Contains(entity.TrustedRemoteIp))
             {
@@ -204,6 +206,7 @@ namespace VNLib.WebServer
 
             //Check coors enabled
             bool isCors = entity.Server.IsCors();
+            
             /*
              * Deny/allow cross site/cors requests at the site-level
              */

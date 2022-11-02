@@ -102,14 +102,12 @@ namespace VNLib.WebServer.RuntimeLoading
         /// <param name="config">The configuration instance to pass to plugins</param>
         /// <param name="appLog">A log provider to write message and errors to</param>
         /// <returns>A task that resolves when all plugins are loaded</returns>
-        public Task LoadPluginsAsync(JsonDocument config, ILogProvider appLog) => Task.Run(() => LoadPluginsInternal(config, appLog));
-
-        private async Task LoadPluginsInternal(JsonDocument config, ILogProvider appLog)
+        public Task LoadPlugins(JsonDocument config, ILogProvider appLog)
         {
             if (!config.RootElement.TryGetProperty(PLUGINS_CONFIG_ELEMENT, out JsonElement pluginEl))
             {
                 appLog.Information("Plugins element not defined in config, skipping plugin loading");
-                return;
+                return Task.CompletedTask;
             }
 
             //Get the plugin directory, or set to default
@@ -123,10 +121,10 @@ namespace VNLib.WebServer.RuntimeLoading
             if (!dir.Exists)
             {
                 appLog.Warn("Plugin directory {dir} does not exist. No plugins were loaded", pluginDir);
-                return;
+                return Task.CompletedTask;
             }
 
-            appLog.Debug("Loading plugins. Hot-reload enabled {en}", hotReload);
+            appLog.Information("Loading plugins. Hot-reload enabled {en}", hotReload);
 
             //Enumerate all dll files within this dir
             IEnumerable<DirectoryInfo> dirs = dir.EnumerateDirectories("*", SearchOption.TopDirectoryOnly);
@@ -145,9 +143,13 @@ namespace VNLib.WebServer.RuntimeLoading
                 return string.Concat(compined, PLUGIN_FILE_EXTENSION);
             });
 
-            appLog.Debug("Found plugin files: \n{files}", (object)pluginPaths.ToArray());
+            IEnumerable<string> pluginFileNames = pluginPaths.Select(static s => $"{s}\n");
 
-            List<Task> loading = new();
+            appLog.Debug("Found plugin files: \n{files}", string.Concat(pluginFileNames));
+
+            LinkedList<Task> loading = new();
+
+            object listLock = new();
 
             foreach (string pluginPath in pluginPaths)
             {
@@ -159,8 +161,12 @@ namespace VNLib.WebServer.RuntimeLoading
                         await plugin.InitLoaderAsync();
                         //Listen for reload events to remove and re-add endpoints
                         plugin.Reloaded += OnPluginReloaded;
-                        //Add to list
-                        _pluginLoaders.AddLast(plugin);
+
+                        lock (listLock)
+                        {
+                            //Add to list
+                            _pluginLoaders.AddLast(plugin);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -169,26 +175,28 @@ namespace VNLib.WebServer.RuntimeLoading
                     }
                 }
 
-                loading.Add(Load());
+                loading.AddLast(Load());
             }
 
-            appLog.Verbose("Waiting for enabled plugins to load");
+            //Continuation to add all initial plugins to the service manager
+            void Continuation(Task t)
+            {
+                appLog.Verbose("Plugins loaded");
+
+                //Add inital endpoints for all plugins
+                _pluginLoaders.TryForeach(ldr => _serviceGroups.TryForeach(sg => sg.AddOrUpdateEndpointsForPlugin(ldr)));
+
+                //Init session provider
+                InitSessionProvider();
+
+                //Init page router
+                InitPageRouter();
+            }
 
             //wait for loading to completed
-            await Task.WhenAll(loading.ToArray());
-
-            appLog.Verbose("Plugins loaded");
-
-            //Add inital endpoints for all plugins
-            _pluginLoaders.TryForeach(ldr => _serviceGroups.TryForeach(sg => sg.AddOrUpdateEndpointsForPlugin(ldr)));
-
-            //Init session provider
-            InitSessionProvider();
-
-            //Init page router
-            InitPageRouter();
+            return Task.WhenAll(loading.ToArray()).ContinueWith(Continuation, TaskContinuationOptions.ExecuteSynchronously);
         }
-
+        
         /// <summary>
         /// Sends a message to a plugin identified by it's name.
         /// </summary>
@@ -265,7 +273,7 @@ namespace VNLib.WebServer.RuntimeLoading
             {
                 //get the loader that contains the single session provider
                 WebPluginLoader? sessionLoader = _pluginLoaders
-                    .Where(static s => s.ExposesType<IServiceProvider>())
+                    .Where(static s => s.ExposesType<ISessionProvider>())
                     .SingleOrDefault();
 
                 //If session provider has been supplied, load it

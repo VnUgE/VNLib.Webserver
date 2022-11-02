@@ -8,14 +8,11 @@ using System.Text.Json;
 using System.Threading;
 using System.Net.Security;
 using System.IO.Compression;
-using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Security.Authentication;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography.X509Certificates;
-
-using Serilog;
 
 using VNLib.Utils.IO;
 using VNLib.Utils.Memory;
@@ -23,16 +20,12 @@ using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
-using VNLib.Plugins;
-using VNLib.Plugins.Runtime;
-using VNLib.Plugins.Essentials.Content;
-using VNLib.Plugins.Essentials.Sessions;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
 
 using VNLib.WebServer.Transport;
 using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
-using static System.Net.WebRequestMethods;
+
 /*
 * Arguments
 * --config <config_path>
@@ -44,7 +37,6 @@ using static System.Net.WebRequestMethods;
 * --rpmalloc to force enable the rpmalloc library loading for the Memory class
 */
 
-#nullable enable
 
 namespace VNLib.WebServer
 {
@@ -441,7 +433,7 @@ Starting...
             HttpServiceStack serviceStack = new();
             try
             {
-                logger.AppLog.Information("Loading virtual hosts");
+                logger.AppLog.Information("Building service stack, populating service domain...");
 
                 //Build the service domain from roots
                 bool built = serviceStack.ServiceDomain.BuildDomain(collection => LoadRoots(config, logger.AppLog, collection));
@@ -454,7 +446,7 @@ Starting...
                 }
 
                 //Wait for plugins to load
-                serviceStack.ServiceDomain.LoadPluginsAsync(config, logger.AppLog).Wait();
+                serviceStack.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
 
                 //Build servers
                 serviceStack.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog));

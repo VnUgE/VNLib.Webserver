@@ -51,11 +51,11 @@ namespace VNLib.WebServer.RuntimeLoading
         private static void InitConsoleLog(ProcessArguments args, LoggerConfiguration conf, string logName)
         {
             //Set verbosity level, defaul to informational
-            if (args.Debug)
+            if (args.Verbose)
             {
                 conf.MinimumLevel.Verbose();
             }
-            else if (args.Verbose)
+            else if (args.Debug)
             {
                 conf.MinimumLevel.Debug();
             }

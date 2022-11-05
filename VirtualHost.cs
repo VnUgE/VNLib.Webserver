@@ -2,11 +2,8 @@
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Security.Authentication;
-using System.Security.Cryptography.X509Certificates;
 
 using VNLib.Net;
 using VNLib.Net.Http;
@@ -17,59 +14,17 @@ using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.Sessions;
 using VNLib.Plugins.Essentials.Accounts;
 using VNLib.Plugins.Essentials.Extensions;
-
-#nullable enable
+using VNLib.Plugins.Essentials.ServiceStack;
 
 namespace VNLib.WebServer
 {
-    internal sealed class VirtualHost : EventProcessor
+
+    internal sealed class VirtualHost : EventProcessor, IServiceHost
     {
         private const int FILE_PATH_BUILDER_BUFFER_SIZE = 4096;
 
-        internal readonly DirectoryInfo Root;
-        public ReadOnlyCollection<string> defaultFiles { get; init; }
-        public HashSet<string> excludedExtensions { get; init; }
-        /// <summary>
-        /// A collection of trusted upstream servers
-        /// </summary>
-        public IReadOnlySet<IPAddress> upstreamServers { get; init; }
-        /// <summary>
-        /// A per-root value that defines if CORS is enabled for all connections to this site
-        /// </summary>
-        internal bool allowCors { get; init; }
-
-        /// <summary>
-        /// The current sites Content-Secruity-Policy header value
-        /// </summary>
-        public string? ContentSecurityPolicy { get; init; }
-        /// <summary>
-        /// The TLS certificate to use for this website
-        /// </summary>
-        public X509Certificate? Certificate { get; init; }
-        /// <summary>
-        /// The IP endpoint of the server that should serve this root
-        /// </summary>
-        public IPEndPoint ServerEndpoint { get; init; }
-        /// <summary>
-        /// A regex filter instance to filter incoming filesystem paths
-        /// </summary>
-        public Regex PathFilter { get; init; }
-        /// <summary>
-        /// Strict transport security header
-        /// </summary>
-        public string? HSTSHeader { get; init; }
-        /// <summary>
-        /// An optional whitelist set of ipaddresses that are allowed to make connections to this site
-        /// </summary>
-        public IReadOnlySet<IPAddress>? WhiteList { get; init; }
-        /// <summary>
-        /// Sets the site's referrer policy header
-        /// </summary>
-        public string? RefererPolicy { get; init; }
-        /// <summary>
-        /// The default response entity cache value
-        /// </summary>
-        public TimeSpan CacheDefault { get; init; }
+        private readonly DirectoryInfo Root;
+        
         public ReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; }
       
         ///<inheritdoc/>
@@ -77,32 +32,19 @@ namespace VNLib.WebServer
         ///<inheritdoc/>
         public override string Directory => Root.FullName;
         ///<inheritdoc/>
-        public override TimeSpan OperationTimeout { get; }
-        ///<inheritdoc/>
-        public override IReadOnlyCollection<string> DefaultFiles => defaultFiles;
-        ///<inheritdoc/>
-        public override IReadOnlySet<string> ExcludedExtensions => excludedExtensions;
-        ///<inheritdoc/>
-        public override FileAttributes AllowedAttributes => FileAttributes.Archive | FileAttributes.Compressed | FileAttributes.Normal | FileAttributes.ReadOnly;
-        ///<inheritdoc/>
-        public override FileAttributes DissallowedAttributes => 
-            FileAttributes.Device 
-            | FileAttributes.Directory 
-            | FileAttributes.Encrypted 
-            | FileAttributes.Hidden 
-            | FileAttributes.IntegrityStream 
-            | FileAttributes.Offline 
-            | FileAttributes.ReparsePoint 
-            | FileAttributes.System;
-        
-        ///<inheritdoc/>
-        public override IReadOnlySet<IPAddress> UpstreamServers => upstreamServers;
-
-        ///<inheritdoc/>
         protected override ILogProvider Log { get; }
 
+        ///<inheritdoc/>
+        public override IEpProcessingOptions Options => VirtualHostOptions;
+
+        public EPOptionsImpl VirtualHostOptions { get; init; }
+
+        //Explict pass of service host information
+        EventProcessor IServiceHost.Processor => this;
+        IHostTransportInfo IServiceHost.TransportInfo => VirtualHostOptions;
+
 #nullable disable
-        public VirtualHost(string path, string hostName, ILogProvider log, int timeoutMs)
+        public VirtualHost(string path, string hostName, ILogProvider log)
         {
             Root = new DirectoryInfo(path);
             if (!Root.Exists)
@@ -110,9 +52,8 @@ namespace VNLib.WebServer
                 Root.Create();
             }
             Hostname = hostName;
-            OperationTimeout = TimeSpan.FromMilliseconds(timeoutMs);
             //Inint default cache string
-            DefaultCacheString = new(() => HttpHelpers.GetCacheString(CacheType.Public, (int)CacheDefault.TotalSeconds), false);
+            DefaultCacheString = new(() => HttpHelpers.GetCacheString(CacheType.Public, (int)VirtualHostOptions.CacheDefault.TotalSeconds), false);
             Log = log;
         }
 #nullable enable
@@ -132,7 +73,7 @@ namespace VNLib.WebServer
         public override string TranslateResourcePath(string requestPath)
         {
             //Filter the path using the supplied regex
-            requestPath = PathFilter.Replace(requestPath, string.Empty);
+            requestPath = VirtualHostOptions.PathFilter?.Replace(requestPath, string.Empty) ?? requestPath;
             //Alloc temp buffer from the shared heap, 
             using UnsafeMemoryHandle<char> charBuffer = Memory.UnsafeAlloc<char>(FILE_PATH_BUILDER_BUFFER_SIZE);
             //Buffer writer
@@ -177,7 +118,7 @@ namespace VNLib.WebServer
             }
             
             //If a whitelist has been defined, block requests from non-whitelisted IPs
-            if (WhiteList != null && !WhiteList.Contains(entity.TrustedRemoteIp))
+            if (VirtualHostOptions.WhiteList != null && !VirtualHostOptions.WhiteList.Contains(entity.TrustedRemoteIp))
             {
                 Log.Verbose("Client {ip} is not whitelisted, blocked", entity.TrustedRemoteIp);
                 return ValueTask.FromResult(FileProcessArgs.Deny);
@@ -190,18 +131,18 @@ namespace VNLib.WebServer
             }
 
             /*
-             * Upstream server will handle the transport security,
-             * if the connection is not from an upstream server 
+             * downstream server will handle the transport security,
+             * if the connection is not from an downstream server 
              * and is using transport security then we can specify HSTS
              */
-            if (entity.IsSecure && HSTSHeader != null)
+            if (entity.IsSecure && VirtualHostOptions.HSTSHeader != null)
             {
-                entity.Server.Headers["Strict-Transport-Security"] = HSTSHeader;
+                entity.Server.Headers["Strict-Transport-Security"] = VirtualHostOptions.HSTSHeader;
             }
             //Always set refer policy
-            if (RefererPolicy != null)
+            if (VirtualHostOptions.RefererPolicy != null)
             {
-                entity.Server.Headers["Referrer-Policy"] = RefererPolicy;
+                entity.Server.Headers["Referrer-Policy"] = VirtualHostOptions.RefererPolicy;
             }
 
             //Check coors enabled
@@ -210,7 +151,7 @@ namespace VNLib.WebServer
             /*
              * Deny/allow cross site/cors requests at the site-level
              */
-            if (allowCors)
+            if (VirtualHostOptions.AllowCors)
             {
                 if (isCors)
                 {
@@ -348,7 +289,7 @@ namespace VNLib.WebServer
             {
                 entity.Server.Headers.Append("X-XSS-Protection", "1; mode=block;");
                 //Setup content-security policy
-                entity.Server.Headers.Append("Content-Security-Policy", ContentSecurityPolicy);
+                entity.Server.Headers.Append("Content-Security-Policy", VirtualHostOptions.ContentSecurityPolicy);
             }
         }
 

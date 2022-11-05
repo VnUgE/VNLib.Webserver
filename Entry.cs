@@ -20,6 +20,8 @@ using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
+using VNLib.Plugins.Essentials;
+using VNLib.Plugins.Essentials.ServiceStack;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
 
 using VNLib.WebServer.Transport;
@@ -73,7 +75,6 @@ Starting...
         };
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
-        private const string DEFUALT_PLUGIN_DIR = "plugins";
       
         private const string HOSTS_CONFIG_PROP_NAME = "virtual_hosts";
         private const string SERVER_ERROR_FILE_PROP_NAME = "error_files";
@@ -93,7 +94,7 @@ Starting...
         private const string SERVER_CORS_ENEABLE_PROP_NAME = "enable_cors";
         private const string SERVER_HSTS_HEADER_PROP_NAME = "hsts_header";
         private const string SERVER_CACHE_DEFAULT_PROP_NAME = "cache_default_sec";
-        private const string UPSTREAM_TRUSTED_SERVERS_PROP = "upstream_servers";
+        private const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
 
         private const string HTTP_CONF_PROP_NAME = "http";
 
@@ -145,11 +146,14 @@ Starting...
                 return -1;
             }
 
+            logger.AppLog.Information("Building service stack, populating service domain...");
+
             //Init service stack
             using HttpServiceStack? serviceStack = BuildStack(logger, http.Value, config);
 
             if(serviceStack == null)
             {
+                logger.AppLog.Error("Failed to build service stack, no virtual hosts were defined, exiting");
                 return 0;
             }
 
@@ -216,14 +220,45 @@ Starting...
         }
 
         #endregion
-       
+
+        public static HttpServiceStack? BuildStack(ServerLogger logger, in HttpConfig httpConfig, JsonDocument config)
+        {
+            //Init service stack
+            HttpServiceStack serviceStack = new();
+            try
+            {
+                //Build the service domain from roots
+                bool built = serviceStack.ServiceDomain.BuildDomain(collection => LoadRoots(config, logger.AppLog, collection));
+
+                //Make sure a service stack was loaded
+                if (!built)
+                {
+                    return null;
+                }
+
+                //Wait for plugins to load
+                serviceStack.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
+
+                //Build servers
+                serviceStack.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog));
+            }
+            catch
+            {
+                serviceStack.Dispose();
+                throw;
+            }
+            return serviceStack;
+        }
+
+        private const string FOUND_VH_TEMPLATE = "Found virtual host\n hostname: {hn}\n Listening on: {ep}\n SSL: {ssl}\n Whitelist entries: {wl}\n Downstream servers {ds}";
+
         /// <summary>
         /// Loads all server roots from the configuration file
         /// </summary>
         /// <param name="config">The application configuration to load</param>
         /// <param name="log"></param>
         /// <remarks>A value that indicates if roots we loaded correctly, or false if errors occured and could not be loaded</remarks>
-        private static bool LoadRoots(JsonDocument config, ILogProvider log, ICollection<VirtualHost> hosts)
+        private static bool LoadRoots(JsonDocument config, ILogProvider log, ICollection<IServiceHost> hosts)
         {
             try
             {
@@ -283,7 +318,7 @@ Starting...
                                                                                           select new KeyValuePair<HttpStatusCode, FailureFile>(
                                                                                               (HttpStatusCode)f.GetProperty("code").GetInt32(),
                                                                                               new((HttpStatusCode)f.GetProperty("code").GetInt32(),
-                                                                                              f.GetProperty("path").GetString())));
+                                                                                              f.GetProperty("path").GetString()!)));
                             ff = new(ffs);
                         }
                         else
@@ -291,14 +326,14 @@ Starting...
                             ff = new();
                         }
                     }
-                    //Find upstream servers
-                    HashSet<IPAddress> upstreamServers = new();
+                    //Find downstream servers
+                    HashSet<IPAddress> downstreamServers = new();
                     {
                         //See if element is set
-                        if (rootConf.TryGetValue(UPSTREAM_TRUSTED_SERVERS_PROP, out JsonElement upstreamEl))
+                        if (rootConf.TryGetValue(DOWNSTREAM_TRUSTED_SERVERS_PROP, out JsonElement downstreamEl))
                         {
                             //hash endpoints 
-                            upstreamServers = upstreamEl.EnumerateArray().Select(static addr => IPAddress.Parse(addr.GetString()!)).ToHashSet();
+                            downstreamServers = downstreamEl.EnumerateArray().Select(static addr => IPAddress.Parse(addr.GetString()!)).ToHashSet();
                         }
                     }
                     //Check Whitelist
@@ -308,7 +343,6 @@ Starting...
                         if(rootConf.TryGetValue(SERVER_WHITELIST_PROP_NAME, out JsonElement wlEl))
                         {
                             whiteList = wlEl.EnumerateArray().Select(static addr => IPAddress.Parse(addr.GetString()!)).ToHashSet();
-                            log.Information("Found {c} addresses in whitelist for {host}", whiteList.Count.ToString(), hostname);
                         }
                     }
                     HashSet<string> excludedExtensions = new();
@@ -329,32 +363,44 @@ Starting...
                     }
                     //Get root exec timeout
                     uint timeoutMs = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetUInt32();
+                    
                     //Create a new server root 
-                    VirtualHost root = new(rootPath, hostname, log, (int) timeoutMs)
+                    VirtualHost root = new(rootPath, hostname, log)
                     {
-                        //Set optional whitelist
-                        WhiteList = whiteList,
-                        //Set required upstream servers
-                        upstreamServers = upstreamServers,
+                        //Configure ep options
+                        VirtualHostOptions = new EPOptionsImpl()
+                        {
+                            AllowCors = rootConf.TryGetValue(SERVER_CORS_ENEABLE_PROP_NAME, out JsonElement corsEl) && corsEl.GetBoolean(),
+                            
+                            //Set optional whitelist
+                            WhiteList = whiteList,
+                            
+                            //Set required downstream servers
+                            DownStreamServers = downstreamServers,
+                            ExcludedExtensions = excludedExtensions,
+                            DefaultFiles = defaultFiles,
+                            
+                            //store certificate
+                            Certificate = cert,
+                            //Set inerface
+                            TransportEndpoint = serverEndpoint,
+                            PathFilter = pathFilter,
+                            
+                            //Get optional security config options
+                            RefererPolicy = rootConf.GetPropString(SERVER_REFER_POLICY_PROP_NAME),                           
+                            HSTSHeader = rootConf.GetPropString(SERVER_HSTS_HEADER_PROP_NAME),
+                            ContentSecurityPolicy = rootConf.GetPropString(SERVER_CONTENT_SEC_PROP_NAME),                            
+
+                            CacheDefault = rootConf[SERVER_CACHE_DEFAULT_PROP_NAME].GetTimeSpan(TimeParseType.Seconds),
+                            
+                            //execution timeout
+                            ExecutionTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds)
+                        },
                         FailureFiles = new(ff),
-                        //Set csp from config
-                        ContentSecurityPolicy = rootConf.GetPropString(SERVER_CONTENT_SEC_PROP_NAME),
-                        //store certificate
-                        Certificate = cert,
-                        //Set inerface
-                        ServerEndpoint = serverEndpoint,
-                        PathFilter = pathFilter,
-                        //Get optional security config options
-                        RefererPolicy = rootConf.GetPropString(SERVER_REFER_POLICY_PROP_NAME),
-                        allowCors = rootConf.TryGetValue(SERVER_CORS_ENEABLE_PROP_NAME, out JsonElement corsEl) && corsEl.GetBoolean(),
-                        HSTSHeader = rootConf.GetPropString(SERVER_HSTS_HEADER_PROP_NAME),
-                        CacheDefault = TimeSpan.FromSeconds(rootConf[SERVER_CACHE_DEFAULT_PROP_NAME].GetInt32()),
-                        excludedExtensions = excludedExtensions,
-                        defaultFiles = new(defaultFiles)
                     };
                     //Add root to the list
                     hosts.Add(root);
-                    log.Information("Found virtual host {ep} on {if}, with TLS {tls}, upstream servers {us}", hostname, serverEndpoint, cert != null, upstreamServers);
+                    log.Information(FOUND_VH_TEMPLATE, hostname, serverEndpoint, cert != null, whiteList, downstreamServers);
                 }
                 return true;
             }
@@ -425,39 +471,7 @@ Starting...
             }
             return null;
         }
-
-
-        public static HttpServiceStack? BuildStack(ServerLogger logger, in HttpConfig httpConfig, JsonDocument config)
-        {
-            //Init service stack
-            HttpServiceStack serviceStack = new();
-            try
-            {
-                logger.AppLog.Information("Building service stack, populating service domain...");
-
-                //Build the service domain from roots
-                bool built = serviceStack.ServiceDomain.BuildDomain(collection => LoadRoots(config, logger.AppLog, collection));
-
-                //Make sure a service stack was loaded
-                if (!built)
-                {
-                    logger.AppLog.Error("Failed to build service stack, no virtual hosts were defined, exiting");
-                    return null;
-                }
-
-                //Wait for plugins to load
-                serviceStack.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
-
-                //Build servers
-                serviceStack.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog));
-            }
-            catch
-            {
-                serviceStack.Dispose();
-                throw;
-            }
-            return serviceStack;
-        }
+      
         
 
         private static ITransportProvider GetTransportForServiceGroup(ServiceGroup group, ILogProvider sysLog)
@@ -465,12 +479,12 @@ Starting...
             SslServerAuthenticationOptions? sslAuthOptions = null;
 
             //See if certs are defined
-            if (group.Hosts.Where(static h => h.Certificate != null).Any())
+            if (group.Hosts.Where(static h => h.TransportInfo.Certificate != null).Any())
             {
                 //Init ssl options
 
                 //Setup a cert lookup for all roots that defined certs
-                IReadOnlyDictionary<string, X509Certificate?> certLookup = group.Hosts.ToDictionary(root => root.Hostname, root => root.Certificate)!;
+                IReadOnlyDictionary<string, X509Certificate?> certLookup = group.Hosts.ToDictionary(root => root.Processor.Hostname, root => root.TransportInfo.Certificate)!;
                 //If the wildcard hostname is set save a local copy
                 X509Certificate? defaultCert = certLookup.GetValueOrDefault("*", null);
                 //Build the server auth options

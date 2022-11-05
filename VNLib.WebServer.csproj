@@ -58,6 +58,7 @@
     <ProjectReference Include="..\VNLib\Http\VNLib.Net.Http.csproj" />
     <ProjectReference Include="..\VNLib\Plugins\VNLib.Plugins.csproj" />
     <ProjectReference Include="..\VNLib\TcpTransport\src\VNLib.Net.Transport.SimpleTCP.csproj" />
+    <ProjectReference Include="..\VNLib\VNLib.Plugins.Essentials.ServiceStack\src\VNLib.Plugins.Essentials.ServiceStack.csproj" />
     <ProjectReference Include="..\VNLib\VNLib.Plugins.Runtime\VNLib.Plugins.Runtime.csproj" />
   </ItemGroup>
 

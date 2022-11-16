@@ -20,7 +20,6 @@ using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
-using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.ServiceStack;
 using HttpVersion = VNLib.Net.Http.HttpVersion;
 
@@ -45,7 +44,7 @@ namespace VNLib.WebServer
     static class Entry
     {
         const string STARTUP_MESSAGE =
-@"VNLib Copyright (C) 2022 Vaughn Nugent
+@"VNLib Copyright (C) Vaughn Nugent
 This program comes with ABSOLUTELY NO WARRANTY.
 Licensing for this software and other libraries can be found at https://www.vaughnnugent.com/resources/vnlib
 Starting...
@@ -58,7 +57,6 @@ Starting...
 
         private static readonly TCPConfig BaseTcpConfig = new()
         {
-            AcceptThreads = 24 * 2,
             KeepaliveInterval = 4,
             TcpKeepalive = false,
             TcpKeepAliveTime = 4,
@@ -149,7 +147,7 @@ Starting...
             logger.AppLog.Information("Building service stack, populating service domain...");
 
             //Init service stack
-            using HttpServiceStack? serviceStack = BuildStack(logger, http.Value, config);
+            using HttpServiceStack? serviceStack = BuildStack(logger, procArgs, http.Value, config);
 
             if(serviceStack == null)
             {
@@ -160,7 +158,7 @@ Starting...
             logger.AppLog.Information("Starting listeners...");
 
             //Start servers
-            serviceStack.StartServers();           
+            serviceStack.StartServers();
             
             using ManualResetEventSlim ShutdownEvent = new(false);
             
@@ -221,7 +219,7 @@ Starting...
 
         #endregion
 
-        public static HttpServiceStack? BuildStack(ServerLogger logger, in HttpConfig httpConfig, JsonDocument config)
+        public static HttpServiceStack? BuildStack(ServerLogger logger, ProcessArguments args, in HttpConfig httpConfig, JsonDocument config)
         {
             //Init service stack
             HttpServiceStack serviceStack = new();
@@ -240,7 +238,7 @@ Starting...
                 serviceStack.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
 
                 //Build servers
-                serviceStack.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog));
+                serviceStack.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog, args));
             }
             catch
             {
@@ -250,7 +248,16 @@ Starting...
             return serviceStack;
         }
 
-        private const string FOUND_VH_TEMPLATE = "Found virtual host\n hostname: {hn}\n Listening on: {ep}\n SSL: {ssl}\n Whitelist entries: {wl}\n Downstream servers {ds}";
+        private const string FOUND_VH_TEMPLATE =
+@"
+--------------------------------------------------
+ |           Found virtual host:
+ | hostname: {hn}
+ | Listening on: {ep}
+ | SSL: {ssl}
+ | Whitelist entries: {wl}
+ | Downstream servers {ds}
+--------------------------------------------------";
 
         /// <summary>
         /// Loads all server roots from the configuration file
@@ -361,8 +368,6 @@ Starting...
                             defaultFiles = defFileEl.EnumerateArray().Select(static s => s.GetString()).ToList()!;
                         }
                     }
-                    //Get root exec timeout
-                    uint timeoutMs = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetUInt32();
                     
                     //Create a new server root 
                     VirtualHost root = new(rootPath, hostname, log)
@@ -470,11 +475,10 @@ Starting...
                 logger.AppLog.Error(ex, "Check your HTTP configuration object");
             }
             return null;
-        }
-      
+        }      
         
 
-        private static ITransportProvider GetTransportForServiceGroup(ServiceGroup group, ILogProvider sysLog)
+        private static ITransportProvider GetTransportForServiceGroup(ServiceGroup group, ILogProvider sysLog, ProcessArguments args)
         {
             SslServerAuthenticationOptions? sslAuthOptions = null;
 
@@ -507,18 +511,26 @@ Starting...
                 };
             }
 
+            //Check cli args thread count
+            string? procCount = args.GetArg("-t");
+            if(!uint.TryParse(procCount, out uint threadCount))
+            {
+                threadCount = (uint)Environment.ProcessorCount;
+            }
+
             //Init a new TCP config
             TCPConfig tcpConf = new()
             {
+                AcceptThreads = threadCount,
+
                 //Service endpoint to listen on
                 LocalEndPoint = group.ServiceEndpoint,
                 Log = sysLog,
                 
                 //Optional ssl options
                 AuthenticationOptions = sslAuthOptions,
-                
+
                 //Copy from base config
-                AcceptThreads = BaseTcpConfig.AcceptThreads,
                 TcpKeepAliveTime = BaseTcpConfig.TcpKeepAliveTime,
                 KeepaliveInterval = BaseTcpConfig.KeepaliveInterval,
                 TcpKeepalive = BaseTcpConfig.TcpKeepalive,

@@ -1,8 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 
-#nullable enable
-
 namespace VNLib.WebServer.RuntimeLoading
 {
     internal class ProcessArguments

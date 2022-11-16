@@ -53,7 +53,10 @@ namespace VNLib.WebServer
             }
             Hostname = hostName;
             //Inint default cache string
-            DefaultCacheString = new(() => HttpHelpers.GetCacheString(CacheType.Public, (int)VirtualHostOptions.CacheDefault.TotalSeconds), false);
+            DefaultCacheString = new(() => 
+                HttpHelpers.GetCacheString(CacheType.Public, (int)VirtualHostOptions.CacheDefault.TotalSeconds),
+                System.Threading.LazyThreadSafetyMode.PublicationOnly
+            );
             Log = log;
         }
 #nullable enable
@@ -130,6 +133,18 @@ namespace VNLib.WebServer
                 
             }
 
+            //If not behind upstream server, uri ports and server ports must match
+            if (!entity.IsBehindDownStreamServer && !entity.Server.EnpointPortsMatch())
+            {
+                return ValueTask.FromResult(FileProcessArgs.Deny);
+            }
+
+            //Enforce origin header for post requests
+            if(entity.Server.Method == HttpMethod.POST && entity.Server.Origin == null)
+            {
+                return ValueTask.FromResult(FileProcessArgs.Deny);
+            }
+
             /*
              * downstream server will handle the transport security,
              * if the connection is not from an downstream server 
@@ -147,7 +162,7 @@ namespace VNLib.WebServer
 
             //Check coors enabled
             bool isCors = entity.Server.IsCors();
-            
+
             /*
              * Deny/allow cross site/cors requests at the site-level
              */
@@ -182,6 +197,26 @@ namespace VNLib.WebServer
             {
                 string? dest = entity.Server.Headers["sec-fetch-dest"];
                 if(dest != null && (dest.Contains("object", StringComparison.OrdinalIgnoreCase) || dest.Contains("embed")))
+                {
+                    return ValueTask.FromResult(FileProcessArgs.Deny);
+                }
+            }
+
+            //If the connection is cors, then an origin header must be supplied
+            if (isCors)
+            {
+                //Enforce origin header
+                if (entity.Server.Origin == null)
+                {
+                    return ValueTask.FromResult(FileProcessArgs.Deny);
+                }
+            }
+
+            //If same origin is supplied, enforce origin header on post/options/put/patch
+            if ("same-origin".Equals(entity.Server.Headers["Sec-Fetch-Site"]))
+            {
+                //If method is not get/head, then origin is required
+                if ((entity.Server.Method & (HttpMethod.GET | HttpMethod.HEAD)) == 0 && entity.Server.Origin == null)
                 {
                     return ValueTask.FromResult(FileProcessArgs.Deny);
                 }

@@ -8,8 +8,6 @@ using Serilog;
 
 using VNLib.Utils.Extensions;
 
-#nullable enable
-
 namespace VNLib.WebServer.RuntimeLoading
 {
     internal class ServerLogBuilder
@@ -77,7 +75,7 @@ namespace VNLib.WebServer.RuntimeLoading
             string? filePath = null;
             string? template = null;
 
-            TimeSpan flushInterval = TimeSpan.FromSeconds(2);
+            TimeSpan flushInterval = TimeSpan.FromSeconds(10);
             int retainedLogs = 31;
             //Default to 500mb log file size
             int fileSizeLimit = 500 * 1000 * 1024;
@@ -86,7 +84,7 @@ namespace VNLib.WebServer.RuntimeLoading
             //try to get the log config object
             if (el.TryGetProperty(elPath, out JsonElement logEl))
             {
-                IReadOnlyDictionary<string, JsonElement> conf = logEl.EnumerateObject().ToDictionary(s => s.Name, s => s.Value);
+                IReadOnlyDictionary<string, JsonElement> conf = logEl.EnumerateObject().ToDictionary(static s => s.Name, static s => s.Value);
 
                 filePath = conf.GetPropString("path");
                 template = conf.GetPropString("template");
@@ -115,7 +113,13 @@ namespace VNLib.WebServer.RuntimeLoading
             filePath ??= Path.Combine(Environment.CurrentDirectory, $"{elPath}.txt");
             template ??= $"{{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}} [{{Level:u3}}] {logName} {{Message:lj}}{{NewLine}}{{Exception}}";
             //Configure the log file writer
-            logConfig.WriteTo.File(filePath, buffered: true, retainedFileCountLimit: retainedLogs, fileSizeLimitBytes: fileSizeLimit, rollingInterval: interval, outputTemplate: template);
+            logConfig.WriteTo.File(filePath, 
+                buffered: true, 
+                retainedFileCountLimit: retainedLogs, 
+                fileSizeLimitBytes: fileSizeLimit, 
+                rollingInterval: interval, 
+                outputTemplate: template, 
+                flushToDiskInterval:flushInterval);
         }
     }
 }

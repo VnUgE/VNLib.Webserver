@@ -4,6 +4,10 @@
       "commandName": "Project",
       "commandLineArgs": "-v --rpmalloc --threads -t 64",
       "nativeDebugging": true
+    },
+    "WSL": {
+      "commandName": "WSL2",
+      "distributionName": ""
     }
   }
 }

@@ -43,12 +43,12 @@ using VNLib.Utils.Memory;
 using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
 using VNLib.Net.Http;
+using VNLib.Net.Transport.Tcp;
 using VNLib.Plugins.Essentials.ServiceStack;
 
 using VNLib.WebServer.Transport;
 using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
-using VNLib.Net.Transport.Tcp;
 
 /*
 * Arguments
@@ -245,11 +245,11 @@ Starting...
         public static HttpServiceStack? BuildStack(ServerLogger logger, ProcessArguments args, in HttpConfig httpConfig, JsonDocument config)
         {
             //Init service stack
-            HttpServiceStack serviceStack = new();
+            HttpServiceStackBuilder builder = new();
             try
             {
                 //Build the service domain from roots
-                bool built = serviceStack.ServiceDomain.BuildDomain(collection => LoadRoots(config, logger.AppLog, collection));
+                bool built = builder.ServiceDomain.BuildDomain(collection => LoadRoots(config, logger.AppLog, collection));
 
                 //Make sure a service stack was loaded
                 if (!built)
@@ -258,17 +258,17 @@ Starting...
                 }
 
                 //Wait for plugins to load
-                serviceStack.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
+                builder.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
 
                 //Build servers
-                serviceStack.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog, args));
+                builder.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog, args));
             }
             catch
             {
-                serviceStack.Dispose();
+                builder.ReleaseOnError();
                 throw;
             }
-            return serviceStack;
+            return builder.ServiceStack;
         }
 
         private const string FOUND_VH_TEMPLATE =
@@ -452,8 +452,6 @@ Starting...
         /// from the application config
         /// </summary>
         /// <param name="config">The application config</param>
-        /// <param name="sysLog">The "system" logger</param>
-        /// <param name="appLog">The "application" logger</param>
         /// <returns>Null if the configuration object is unusable, a new <see cref="HttpConfig"/> struct if parsing was successful</returns>
         private static HttpConfig? GetHttpConfig(JsonDocument config, ProcessArguments args, ServerLogger logger)
         {
@@ -597,7 +595,7 @@ Starting...
 
                             string message = string.Join(' ', s);
 
-                            bool sent = serviceStack.ServiceDomain.SendCommandToPlugin(s[1], message);
+                            bool sent = serviceStack.PluginController.SendCommandToPlugin(s[1], message);
 
                             if (!sent)
                             {
@@ -610,7 +608,7 @@ Starting...
                             try
                             {
                                 //Reload all plugins
-                                serviceStack.ServiceDomain.ForceReloadAllPlugins();
+                                serviceStack.PluginController.ForceReloadAllPlugins();
                             }
                             catch (Exception ex)
                             {

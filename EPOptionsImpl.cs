@@ -66,7 +66,7 @@ namespace VNLib.WebServer
         /// <summary>
         /// Endables cross origin resoruce sharing protections
         /// </summary>
-        public bool AllowCors { get; set; } = false;
+        public bool AllowCors { get; set; }
         /// <summary>
         /// The current sites Content-Secruity-Policy header value
         /// </summary>

@@ -3,14 +3,14 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net6.0</TargetFramework>
-    <Platforms>AnyCPU;x64</Platforms>
+    <Nullable>enable</Nullable>
     <AssemblyName>VNLib.WebServer</AssemblyName>
     <RootNamespace>VNLib.WebServer</RootNamespace>
     <Authors>Vaughn Nugent</Authors>
     <Description>A complete .NET 6 Web server using VNLib.HTTP</Description>
     <Copyright>Copyright © 2022 Vaughn Nugent</Copyright>
-    <Version>1.0.0.1</Version>
-    <PackageProjectUrl>www.vaughnnugent.com/resources</PackageProjectUrl>
+    <Version>1.0.1.1</Version>
+    <PackageProjectUrl>https://www.vaughnnugent.com/resources</PackageProjectUrl>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -18,25 +18,16 @@
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <RetainVMGarbageCollection>true</RetainVMGarbageCollection>
     <RunPostBuildEvent>OnOutputUpdated</RunPostBuildEvent>
-    <SignAssembly>False</SignAssembly>
     <StartupObject>VNLib.WebServer.Entry</StartupObject>
-    <Nullable>enable</Nullable>
+    <AnalysisLevel>latest-all</AnalysisLevel>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
+    <Deterministic>False</Deterministic>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
+    <Deterministic>False</Deterministic>
   </PropertyGroup>
 
   <ItemGroup>
@@ -56,10 +47,8 @@
   <ItemGroup>
     <ProjectReference Include="..\VNLib\Essentials\VNLib.Plugins.Essentials.csproj" />
     <ProjectReference Include="..\VNLib\Http\VNLib.Net.Http.csproj" />
-    <ProjectReference Include="..\VNLib\Plugins\VNLib.Plugins.csproj" />
     <ProjectReference Include="..\VNLib\TcpTransport\src\VNLib.Net.Transport.SimpleTCP.csproj" />
     <ProjectReference Include="..\VNLib\VNLib.Plugins.Essentials.ServiceStack\src\VNLib.Plugins.Essentials.ServiceStack.csproj" />
-    <ProjectReference Include="..\VNLib\VNLib.Plugins.Runtime\VNLib.Plugins.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>

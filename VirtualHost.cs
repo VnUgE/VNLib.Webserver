@@ -28,6 +28,7 @@ using System.Net;
 using System.Threading.Tasks;
 using System.Collections.ObjectModel;
 using System.Security.Authentication;
+
 using VNLib.Net.Http;
 using VNLib.Utils.Memory;
 using VNLib.Utils.Logging;
@@ -160,12 +161,7 @@ namespace VNLib.WebServer
             {
                 return ValueTask.FromResult(FileProcessArgs.Deny);
             }
-
-            //Enforce origin header for post requests
-            if(entity.Server.Method == HttpMethod.POST && entity.Server.Origin == null)
-            {
-                return ValueTask.FromResult(FileProcessArgs.Deny);
-            }
+          
 
             /*
              * downstream server will handle the transport security,
@@ -235,7 +231,7 @@ namespace VNLib.WebServer
             }
 
             //If same origin is supplied, enforce origin header on post/options/put/patch
-            if ("same-origin".Equals(entity.Server.Headers["Sec-Fetch-Site"]))
+            if ("same-origin".Equals(entity.Server.Headers["Sec-Fetch-Site"], StringComparison.OrdinalIgnoreCase))
             {
                 //If method is not get/head, then origin is required
                 if ((entity.Server.Method & (HttpMethod.GET | HttpMethod.HEAD)) == 0 && entity.Server.Origin == null)

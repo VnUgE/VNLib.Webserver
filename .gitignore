@@ -475,3 +475,4 @@ FodyWeavers.xsd
 /VNLib.Utils
 
 config.json
+*.ps1

@@ -26,6 +26,7 @@ using System;
 using System.IO;
 using System.Net;
 
+using VNLib.Net.Http;
 using VNLib.Utils.IO;
 
 namespace VNLib.WebServer
@@ -35,28 +36,64 @@ namespace VNLib.WebServer
     /// </summary>
     internal class FailureFile : InMemoryTemplate
     {
+        private class MemReader : IMemoryResponseReader
+        {
+            private readonly byte[] _memory;
+
+            private int _written;
+
+            public int Remaining { get; private set; }
+
+            internal MemReader(byte[] data)
+            {
+                //Store ref as memory
+                _memory = data;
+                Remaining = data.Length;
+            }            
+
+            public void Advance(int written)
+            {
+                _written += written;
+                Remaining -= written;
+            }
+
+            void IMemoryResponseReader.Close(){}
+            ReadOnlyMemory<byte> IMemoryResponseReader.GetMemory() => _memory.AsMemory(_written, Remaining);
+        }
+
+
         public readonly HttpStatusCode Code;
-       
-        /// <summary>
-        /// Returns refrence to a buffer contating the file data
-        /// </summary>
-        /// <exception cref="IOException"></exception>
-        public Stream File => GetTemplateData();
+
+        private Lazy<byte[]> _templateData;
 
         public override string TemplateName { get; }
-
-        //Preloads failure files
+       
 
         /// <summary>
         /// Catch an http error code and return the selected file to user
         /// </summary>
         /// <param name="code">Http status code to catch</param>
-        /// <param name="file_path">Path to file contating data to return to use on status code</param>
-        public FailureFile(HttpStatusCode code, string file_path):base(file_path, true)
+        /// <param name="filePath">Path to file contating data to return to use on status code</param>
+        public FailureFile(HttpStatusCode code, string filePath):base(filePath, true)
         {
             Code = code;
+            _templateData = new(LoadTemplateData);
+            TemplateName = filePath;
         }
+        
         //Nothing needs to changed when the file is modified
-        protected override void OnModifed(){}
+        protected override void OnModifed()
+        {
+            //Update lazy loader for new file update
+            _templateData = new(LoadTemplateData);
+        }
+
+        private byte[] LoadTemplateData()
+        {
+            //Get file data as binary
+            return File.ReadAllBytes(TemplateFile.FullName);
+        }
+
+        public IMemoryResponseReader GetReader() => new MemReader(_templateData.Value);
     }
 }

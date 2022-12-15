@@ -25,9 +25,11 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Globalization;
 using System.Threading.Tasks;
 using System.Collections.ObjectModel;
 using System.Security.Authentication;
+using System.Runtime.CompilerServices;
 
 using VNLib.Net.Http;
 using VNLib.Utils.Memory;
@@ -47,7 +49,9 @@ namespace VNLib.WebServer
         private const int FILE_PATH_BUILDER_BUFFER_SIZE = 4096;
 
         private readonly DirectoryInfo Root;
-        
+
+        private static readonly string CultreInfo = CultureInfo.InstalledUICulture.Name;
+
         public ReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; }
       
         ///<inheritdoc/>
@@ -90,12 +94,13 @@ namespace VNLib.WebServer
             if (ev.Server.Accepts(ContentType.Html) && FailureFiles.TryGetValue(errorCode, out FailureFile? ff))
             {
                 ev.Server.SetNoCache();
-                ev.CloseResponse(errorCode, ContentType.Html, ff.File);
+                ev.CloseResponse(errorCode, ContentType.Html, ff.GetReader());
                 return true;
             }
             return false;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public override string TranslateResourcePath(string requestPath)
         {
             //Filter the path using the supplied regex
@@ -338,11 +343,18 @@ namespace VNLib.WebServer
                     }
                     break;
             }
+            
             if (ext.IsEmpty || ext.Equals(".html", StringComparison.OrdinalIgnoreCase))
             {
                 entity.Server.Headers.Append("X-XSS-Protection", "1; mode=block;");
                 //Setup content-security policy
                 entity.Server.Headers.Append("Content-Security-Policy", VirtualHostOptions.ContentSecurityPolicy);
+            }
+
+            //Set language of the server's os if the user code did not set it
+            if (!entity.Server.Headers.HeaderSet(HttpResponseHeader.ContentLanguage))
+            {
+                entity.Server.Headers[HttpResponseHeader.ContentLanguage] = CultreInfo;
             }
         }
 

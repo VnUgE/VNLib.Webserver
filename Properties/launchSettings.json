@@ -2,7 +2,7 @@
   "profiles": {
     "VNLib.WebServer": {
       "commandName": "Project",
-      "commandLineArgs": "-v --rpmalloc --threads -t 64",
+      "commandLineArgs": "-v --rpmalloc --threads -t 64 --config F:\\Programming\\VNLIb.WebServer\\config.json",
       "nativeDebugging": true
     },
     "WSL": {

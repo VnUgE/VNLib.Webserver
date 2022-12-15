@@ -45,20 +45,24 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\VNLib\Essentials\VNLib.Plugins.Essentials.csproj" />
-    <ProjectReference Include="..\VNLib\Http\VNLib.Net.Http.csproj" />
+    <ProjectReference Include="..\VNLib\Essentials\src\VNLib.Plugins.Essentials.csproj" />
+    <ProjectReference Include="..\VNLib\Http\src\VNLib.Net.Http.csproj" />
     <ProjectReference Include="..\VNLib\TcpTransport\src\VNLib.Net.Transport.SimpleTCP.csproj" />
     <ProjectReference Include="..\VNLib\VNLib.Plugins.Essentials.ServiceStack\src\VNLib.Plugins.Essentials.ServiceStack.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="config.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Exec Command="start xcopy &quot;$(TargetDir)&quot; &quot;\\vaughnnugent.com\Internal\Vaughns Folder\Programming\LiveWebServer/$(TargetName)&quot; /E /Y /R /Z /V /F /exclude:$(ProjectDir)\exclude.txt" />
+  </Target>
+
+  <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
+    <Exec Command="erase &quot;\\vaughnnugent.com\Internal\Vaughns Folder\Programming\LiveWebServer/$(TargetName)&quot; /q &gt; nul" />
   </Target>
 
 </Project>

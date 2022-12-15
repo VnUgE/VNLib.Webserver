@@ -85,7 +85,7 @@ Starting...
             TcpKeepAliveTime = 4,
             CacheQuota = 0,
             //Allow 100k per connection to be pre-loaded
-            MaxRecvBufferData = 64 * 1024,
+            MaxRecvBufferData = 10 * 64 * 1024,
             BackLog = 1000
         };
 
@@ -471,7 +471,7 @@ Starting...
                     FormDataBufferSize = httpEl["multipart_max_buffer"].GetInt32(),
                     MaxFormDataUploadSize = httpEl["multipart_max_size"].GetInt32(),
                     MaxUploadSize = httpEl["max_entity_size"].GetInt32(),
-                    TransportKeepalive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),
+                    ConnectionKeepAlive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),
                     HeaderBufferSize = httpEl["header_buf_size"].GetInt32(),
                     ActiveConnectionRecvTimeout = httpEl["recv_timout_ms"].GetInt32(),
                     MaxRequestHeaderCount = httpEl["max_request_header_count"].GetInt32(),
@@ -525,12 +525,13 @@ Starting...
                     EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
                     RemoteCertificateValidationCallback = delegate (object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
                     {
-                        return true;
+                        return sslPolicyErrors == SslPolicyErrors.None;
                     },
                     ApplicationProtocols = SslAppProtocols,
                     AllowRenegotiation = false,
                 };
             }
+            
 
             //Check cli args thread count
             string? procCount = args.GetArg("-t");

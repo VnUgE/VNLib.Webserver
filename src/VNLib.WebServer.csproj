@@ -11,6 +11,8 @@
     <Copyright>Copyright © 2022 Vaughn Nugent</Copyright>
     <Version>1.0.1.1</Version>
     <PackageProjectUrl>https://www.vaughnnugent.com/resources</PackageProjectUrl>
+    <SignAssembly>True</SignAssembly>
+    <AssemblyOriginatorKeyFile>\\vaughnnugent.com\Internal\Folder Redirection\vman\Documents\Programming\Software\StrongNameingKey.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -45,10 +47,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\VNLib\Essentials\src\VNLib.Plugins.Essentials.csproj" />
-    <ProjectReference Include="..\VNLib\Http\src\VNLib.Net.Http.csproj" />
-    <ProjectReference Include="..\VNLib\TcpTransport\src\VNLib.Net.Transport.SimpleTCP.csproj" />
-    <ProjectReference Include="..\VNLib\VNLib.Plugins.Essentials.ServiceStack\src\VNLib.Plugins.Essentials.ServiceStack.csproj" />
+    <ProjectReference Include="..\..\core\lib\Plugins.Essentials\src\VNLib.Plugins.Essentials.csproj" />
+    <ProjectReference Include="..\..\core\lib\Net.Http\src\VNLib.Net.Http.csproj" />
+    <ProjectReference Include="..\..\core\lib\Net.Transport.SimpleTCP\src\VNLib.Net.Transport.SimpleTCP.csproj" />
+    <ProjectReference Include="..\..\core\lib\Plugins.Essentials.ServiceStack\src\VNLib.Plugins.Essentials.ServiceStack.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -58,11 +60,11 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="start xcopy &quot;$(TargetDir)&quot; &quot;\\vaughnnugent.com\Internal\Vaughns Folder\Programming\LiveWebServer/$(TargetName)&quot; /E /Y /R /Z /V /F /exclude:$(ProjectDir)\exclude.txt" />
+    <Exec Command="start xcopy &quot;$(TargetDir)&quot; &quot;\\vaughnnugent.com\Internal\Folder Redirection\vman\Documents\Programming\Software\VNLib\$(TargetName)&quot; /E /Y /R /Z /V /F /exclude:$(ProjectDir)\exclude.txt" />
   </Target>
 
   <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-    <Exec Command="erase &quot;\\vaughnnugent.com\Internal\Vaughns Folder\Programming\LiveWebServer/$(TargetName)&quot; /q &gt; nul" />
+    <Exec Command="erase &quot;\\vaughnnugent.com\Internal\Folder Redirection\vman\Documents\Programming\Software\VNLib\$(TargetName)&quot; /q &gt; nul" />
   </Target>
 
 </Project>

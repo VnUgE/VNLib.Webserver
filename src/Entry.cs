@@ -483,7 +483,7 @@ Starting...
 
                     HttpEncoding = Encoding.ASCII,
                 };
-                return conf.DefaultHttpVersion == Net.Http.HttpVersion.NotSupported
+                return conf.DefaultHttpVersion == Net.Http.HttpVersion.None
                     ? throw new Exception("default_version is invalid, specify an RFC formatted http version 'HTTP/x.x'")
                     : conf;
             }

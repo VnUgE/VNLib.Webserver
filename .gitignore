@@ -476,3 +476,6 @@ FodyWeavers.xsd
 
 config.json
 *.ps1
+/.task/*
+*.json
+/Taskfile.yaml

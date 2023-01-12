@@ -474,8 +474,11 @@ FodyWeavers.xsd
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,visualstudio
 /VNLib.Utils
 
-config.json
 *.ps1
+
 /.task/*
+
 *.json
-/Taskfile.yaml
+
+*[Tt]askfile.*
+*[Ee]xclude.txt

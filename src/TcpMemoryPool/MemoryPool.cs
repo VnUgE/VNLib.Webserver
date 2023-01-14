@@ -42,7 +42,7 @@ namespace VNLib.WebServer.TcpMemoryPool
         /// <returns>The memory pool</returns>
         public static MemoryPool<T> GetPool<T>() where T: unmanaged
         {           
-            if (Memory.IsRpMallocLoaded)
+            if (MemoryUtil.IsRpMallocLoaded)
             {
                 //The rpmalloc lib is loaded, it is safe to convert the shared heap to a pool
                 return RpMallocPrivateHeap.GlobalHeap.ToPool<T>();

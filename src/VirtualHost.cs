@@ -106,7 +106,7 @@ namespace VNLib.WebServer
             //Filter the path using the supplied regex
             requestPath = VirtualHostOptions.PathFilter?.Replace(requestPath, string.Empty) ?? requestPath;
             //Alloc temp buffer from the shared heap, 
-            using UnsafeMemoryHandle<char> charBuffer = Memory.UnsafeAlloc<char>(FILE_PATH_BUILDER_BUFFER_SIZE);
+            using UnsafeMemoryHandle<char> charBuffer = MemoryUtil.UnsafeAlloc<char>(FILE_PATH_BUILDER_BUFFER_SIZE);
             //Buffer writer
             ForwardOnlyWriter<char> sb = new(charBuffer.Span);
             //Start with the root filename
@@ -219,7 +219,7 @@ namespace VNLib.WebServer
             if (entity.Server.IsNavigation() && entity.Server.Method == HttpMethod.GET)
             {
                 string? dest = entity.Server.Headers["sec-fetch-dest"];
-                if(dest != null && (dest.Contains("object", StringComparison.OrdinalIgnoreCase) || dest.Contains("embed")))
+                if(dest != null && (dest.Contains("object", StringComparison.OrdinalIgnoreCase) || dest.Contains("embed", StringComparison.OrdinalIgnoreCase)))
                 {
                     return ValueTask.FromResult(FileProcessArgs.Deny);
                 }

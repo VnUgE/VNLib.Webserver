@@ -62,12 +62,4 @@
     </None>
   </ItemGroup>
 
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="start xcopy &quot;$(TargetDir)&quot; &quot;\\vaughnnugent.com\Internal\Folder Redirection\vman\Documents\Programming\Software\VNLib\$(TargetName)&quot; /E /Y /R /Z /V /F /exclude:$(ProjectDir)\exclude.txt" />
-  </Target>
-
-  <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-    <Exec Command="erase &quot;\\vaughnnugent.com\Internal\Folder Redirection\vman\Documents\Programming\Software\VNLib\$(TargetName)&quot; /q &gt; nul" />
-  </Target>
-
 </Project>

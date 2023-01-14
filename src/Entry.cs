@@ -132,7 +132,7 @@ Starting...
             if (procArgs.RpMalloc)
             {
                 //Set initial env to use the rpmalloc allocator for the default heaps
-                Environment.SetEnvironmentVariable(Memory.SHARED_HEAP_TYPE_ENV, "rpmalloc", EnvironmentVariableTarget.Process);
+                Environment.SetEnvironmentVariable(MemoryUtil.SHARED_HEAP_TYPE_ENV, "rpmalloc", EnvironmentVariableTarget.Process);
             }
 
             Console.WriteLine(STARTUP_MESSAGE);

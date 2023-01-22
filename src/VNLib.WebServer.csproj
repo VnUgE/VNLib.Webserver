@@ -6,13 +6,17 @@
     <Nullable>enable</Nullable>
     <AssemblyName>VNLib.WebServer</AssemblyName>
     <RootNamespace>VNLib.WebServer</RootNamespace>
-    <Authors>Vaughn Nugent</Authors>
-    <Description>A complete .NET 6 Web server using VNLib.HTTP</Description>
-    <Copyright>Copyright © 2022 Vaughn Nugent</Copyright>
     <Version>1.0.1.1</Version>
-    <PackageProjectUrl>https://www.vaughnnugent.com/resources</PackageProjectUrl>
     <SignAssembly>True</SignAssembly>
     <AssemblyOriginatorKeyFile>\\vaughnnugent.com\Internal\Folder Redirection\vman\Documents\Programming\Software\StrongNameingKey.snk</AssemblyOriginatorKeyFile>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Vaughn Nugent</Authors>
+    <Description>A complete .NET 6 Web server using VNLib.HTTP</Description>
+    <Copyright>Copyright © 2023 Vaughn Nugent</Copyright>
+    <PackageProjectUrl>https://www.vaughnnugent.com/resources/software</PackageProjectUrl>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -21,7 +25,7 @@
     <RetainVMGarbageCollection>true</RetainVMGarbageCollection>
     <RunPostBuildEvent>OnOutputUpdated</RunPostBuildEvent>
     <StartupObject>VNLib.WebServer.Entry</StartupObject>
-    <AnalysisLevel>latest-all</AnalysisLevel>
+    
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -54,10 +58,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="config.json">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-    </None>
-    <None Update="rpmalloc.dll">
+    <None Update="sample.config.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

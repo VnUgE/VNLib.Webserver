@@ -27,7 +27,7 @@ using System.IO;
 using System.Net;
 using System.Globalization;
 using System.Threading.Tasks;
-using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Security.Authentication;
 using System.Runtime.CompilerServices;
 
@@ -52,7 +52,7 @@ namespace VNLib.WebServer
 
         private static readonly string CultreInfo = CultureInfo.InstalledUICulture.Name;
 
-        public ReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; }
+        public IReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; }
       
         ///<inheritdoc/>
         public override string Hostname { get; }
@@ -185,6 +185,7 @@ namespace VNLib.WebServer
 
             //Check coors enabled
             bool isCors = entity.Server.IsCors();
+            bool isCrossSite = entity.Server.IsCrossSite();
 
             /*
              * Deny/allow cross site/cors requests at the site-level
@@ -196,7 +197,7 @@ namespace VNLib.WebServer
                     //set the allow credentials header
                     entity.Server.Headers["Access-Control-Allow-Credentials"] = "true";
                     //If cross site flag is set, or the connection has cross origin flag set, set explicit origin
-                    if (entity.Server.CrossOrigin || entity.Server.IsCrossSite() && entity.Server.Origin != null)
+                    if (entity.Server.CrossOrigin || isCrossSite && entity.Server.Origin != null)
                     {
                         entity.Server.Headers["Access-Control-Allow-Origin"] = $"{entity.Server.RequestUri.Scheme}://{entity.Server.Origin!.Authority}";
                         //Add origin to the response vary header when setting cors origin
@@ -209,7 +210,7 @@ namespace VNLib.WebServer
             }
             else
             {
-                if(isCors || entity.Server.IsCrossSite())
+                if(isCors || isCrossSite)
                 {
                     return ValueTask.FromResult(FileProcessArgs.Deny);
                 }

@@ -59,6 +59,7 @@ using VNLib.WebServer.RuntimeLoading;
 * -s --silent silent logging mode, does not print logs to the console, only to output files
 * --log-http prints raw http requests to the application log
 * --rpmalloc to force enable the rpmalloc library loading for the Memory class
+* --no-plugins disables plugin loading
 */
 
 
@@ -104,6 +105,7 @@ Starting...
         private const string SERVER_ENDPOINT_PORT_PROP_NAME = "port";
         private const string SERVER_ENDPOINT_IP_PROP_NAME = "address";
         private const string SERVER_CERT_PROP_NAME = "cert";
+        private const string SERVER_SSL_PROP_NAME = "ssl";
         private const string SERVER_HOSTNAME_PROP_NAME = "hostname";
         private const string SERVER_ROOT_PATH_PROP_NAME = "path";
         private const string SESSION_TIMEOUT_PROP_NAME = "max_execution_time_ms";
@@ -257,8 +259,16 @@ Starting...
                     return null;
                 }
 
-                //Wait for plugins to load
-                builder.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
+                //do not load plugins if disabled
+                if (args.HasArg("--no-plugins"))
+                {
+                    logger.AppLog.Information("Plugin loading disabled via command line flag");
+                }
+                else
+                {
+                    //Wait for plugins to load
+                    builder.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
+                }
 
                 //Build servers
                 builder.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog, args));
@@ -279,7 +289,7 @@ Starting...
  | Listening on: {ep}
  | SSL: {ssl}
  | Whitelist entries: {wl}
- | Downstream servers {ds}
+ | Downstream servers: {ds}
 --------------------------------------------------";
 
         /// <summary>
@@ -323,13 +333,23 @@ Starting...
                     }
                     X509Certificate? cert = null;
                     {
-                        //Try to get the cert for the app
-                        if (rootConf.TryGetValue(SERVER_CERT_PROP_NAME, out JsonElement certPath))
+                        //Get ssl object
+                        if(rootConf.TryGetValue(SERVER_SSL_PROP_NAME, out JsonElement sslConfEl))
                         {
-                            //Load the cert and load it to the store
-                            cert = X509Certificate.CreateFromCertFile(certPath.GetString()!);
+                            //try to get a certificate password
+                            using PrivateString? password = (PrivateString?)sslConfEl.GetPropString("password");
+
+                            //Try to get the cert for the app
+                            if (sslConfEl.TryGetProperty(SERVER_CERT_PROP_NAME, out JsonElement certPath))
+                            {
+
+                                //Load the cert and decrypt with password if set
+                                cert = password == null ? new(certPath.GetString()!) : new(certPath.GetString()!, (string)password);
+
+                            }
                         }
                     }
+
                     //Allow site to define a regex filter pattern
                     Regex pathFilter = DefaultRootRegex;
                     {
@@ -338,8 +358,9 @@ Starting...
                             pathFilter = new(rootRegexEl.GetString()!);
                         }
                     }
+
                     //Build error files
-                    Dictionary<HttpStatusCode, FailureFile> ff;
+                    Dictionary<HttpStatusCode, FailureFile>? ff = null;
                     {
                         //if a failure file array is specified, capure all files and
                         if (rootConf.TryGetValue(SERVER_ERROR_FILE_PROP_NAME, out JsonElement errEl))
@@ -351,11 +372,8 @@ Starting...
                                                                                               f.GetProperty("path").GetString()!)));
                             ff = new(ffs);
                         }
-                        else
-                        {
-                            ff = new();
-                        }
                     }
+
                     //Find downstream servers
                     HashSet<IPAddress> downstreamServers = new();
                     {
@@ -366,6 +384,7 @@ Starting...
                             downstreamServers = downstreamEl.EnumerateArray().Select(static addr => IPAddress.Parse(addr.GetString()!)).ToHashSet();
                         }
                     }
+
                     //Check Whitelist
                     HashSet<IPAddress>? whiteList = null;
                     {
@@ -375,6 +394,7 @@ Starting...
                             whiteList = wlEl.EnumerateArray().Select(static addr => IPAddress.Parse(addr.GetString()!)).ToHashSet();
                         }
                     }
+
                     HashSet<string> excludedExtensions = new();
                     {
                         if (rootConf.TryGetValue(SERVER_DENY_EXTENSIONS_PROP_NAME, out JsonElement denyEl))
@@ -383,6 +403,7 @@ Starting...
                             excludedExtensions = denyEl.EnumerateArray().Select(static el => el.GetString()).ToHashSet()!;
                         }
                     }
+
                     List<string> defaultFiles = new();
                     {
                         if (rootConf.TryGetValue(SERVER_DEFAULT_FILE_PROP_NAME, out JsonElement defFileEl))
@@ -424,8 +445,9 @@ Starting...
                             //execution timeout
                             ExecutionTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds)
                         },
-                        FailureFiles = new(ff),
+                        FailureFiles = ff ?? new Dictionary<HttpStatusCode, FailureFile>(),
                     };
+
                     //Add root to the list
                     hosts.Add(root);
                     log.Information(FOUND_VH_TEMPLATE, hostname, serverEndpoint, cert != null, whiteList, downstreamServers);
@@ -473,7 +495,8 @@ Starting...
                     MaxUploadSize = httpEl["max_entity_size"].GetInt32(),
                     ConnectionKeepAlive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),
                     HeaderBufferSize = httpEl["header_buf_size"].GetInt32(),
-                    ActiveConnectionRecvTimeout = httpEl["recv_timout_ms"].GetInt32(),
+                    ActiveConnectionRecvTimeout = httpEl["recv_timeout_ms"].GetInt32(),
+                    SendTimeout = httpEl["send_timeout_ms"].GetInt32(),
                     MaxRequestHeaderCount = httpEl["max_request_header_count"].GetInt32(),
                     MaxOpenConnections = httpEl["max_connections"].GetInt32(),
                     ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
@@ -509,9 +532,11 @@ Starting...
                 //Init ssl options
 
                 //Setup a cert lookup for all roots that defined certs
-                IReadOnlyDictionary<string, X509Certificate?> certLookup = group.Hosts.ToDictionary(root => root.Processor.Hostname, root => root.TransportInfo.Certificate)!;
+                IReadOnlyDictionary<string, X509Certificate?> certLookup = group.Hosts.ToDictionary(static root => root.Processor.Hostname, static root => root.TransportInfo.Certificate)!;
+
                 //If the wildcard hostname is set save a local copy
                 X509Certificate? defaultCert = certLookup.GetValueOrDefault("*", null);
+
                 //Build the server auth options
                 sslAuthOptions = new()
                 {
@@ -521,20 +546,25 @@ Starting...
                         // use the default cert if the hostname is not specified
                         return certLookup.GetValueOrDefault(hostName!, defaultCert)!;
                     },
+
+                    //Eventually when HTTP2 is supported, we can select the ssl version to match
+                    ApplicationProtocols = SslAppProtocols,
+
+                    AllowRenegotiation = false,
                     EncryptionPolicy = EncryptionPolicy.RequireEncryption,
                     EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+
                     RemoteCertificateValidationCallback = delegate (object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
                     {
                         return sslPolicyErrors == SslPolicyErrors.None;
                     },
-                    ApplicationProtocols = SslAppProtocols,
-                    AllowRenegotiation = false,
                 };
             }
             
 
             //Check cli args thread count
             string? procCount = args.GetArg("-t");
+
             if(!uint.TryParse(procCount, out uint threadCount))
             {
                 threadCount = (uint)Environment.ProcessorCount;

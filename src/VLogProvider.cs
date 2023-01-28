@@ -24,6 +24,7 @@
 
 using System;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 using Serilog;
 using Serilog.Core;
@@ -34,7 +35,7 @@ using VNLib.Utils.Logging;
 
 namespace VNLib.WebServer
 {
-    public class VLogProvider : VnDisposeable, ILogProvider
+    internal sealed class VLogProvider : VnDisposeable, ILogProvider
     {
         private readonly Logger LogCore;
 
@@ -42,29 +43,36 @@ namespace VNLib.WebServer
         {
             LogCore = config.CreateLogger();
         }
-        public void Flush(){}
+        public void Flush() { }
 
         public object GetLogProvider() => LogCore;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsEnabled(LogLevel level) => LogCore.IsEnabled((LogEventLevel)level);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(LogLevel level, string value)
         {
             LogCore.Write((LogEventLevel)level, value);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(LogLevel level, Exception exception, string value = "")
         {
             LogCore.Write((LogEventLevel)level, exception, value);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(LogLevel level, string value, params object[] args)
         {
             LogCore.Write((LogEventLevel)level, value, args);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(LogLevel level, string value, params ValueType[] args)
         {
             //Serilog logger supports passing valuetypes to avoid boxing objects
-            if(LogCore.IsEnabled((LogEventLevel)level))
+            if (LogCore.IsEnabled((LogEventLevel)level))
             {
                 object[] ar = args.Select(a => (object)a).ToArray();
                 LogCore.Write((LogEventLevel)level, value, ar);

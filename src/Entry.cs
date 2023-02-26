@@ -117,6 +117,7 @@ Starting...
         private const string SERVER_CORS_ENEABLE_PROP_NAME = "enable_cors";
         private const string SERVER_HSTS_HEADER_PROP_NAME = "hsts_header";
         private const string SERVER_CACHE_DEFAULT_PROP_NAME = "cache_default_sec";
+        private const string SERVER_CORS_AUTHORITY_PROP_NAME = "cors_allowed_authority";
         private const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
 
         private const string HTTP_CONF_PROP_NAME = "http";
@@ -290,6 +291,7 @@ Starting...
  | SSL: {ssl}
  | Whitelist entries: {wl}
  | Downstream servers: {ds}
+ | Allowed Cors Sites: {cors}
 --------------------------------------------------";
 
         /// <summary>
@@ -412,6 +414,18 @@ Starting...
                             defaultFiles = defFileEl.EnumerateArray().Select(static s => s.GetString()).ToList()!;
                         }
                     }
+
+                    HashSet<string>? allowedAuthority = null;
+                    {
+                        //Cors authority will be a list of case-insenitive strings we will convert to a hashset
+                        if(rootConf.TryGetValue(SERVER_CORS_AUTHORITY_PROP_NAME, out JsonElement corsAuthEl))
+                        {
+                            allowedAuthority = corsAuthEl.EnumerateArray()
+                                                        .Where(static v => v.GetString() != null)
+                                                        .Select(static v => v.GetString()!)
+                                                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        }
+                    }
                     
                     //Create a new server root 
                     VirtualHost root = new(rootPath, hostname, log)
@@ -420,6 +434,7 @@ Starting...
                         VirtualHostOptions = new EPOptionsImpl()
                         {
                             AllowCors = rootConf.TryGetValue(SERVER_CORS_ENEABLE_PROP_NAME, out JsonElement corsEl) && corsEl.GetBoolean(),
+                            AllowedCorsAuthority = allowedAuthority,
                             
                             //Set optional whitelist
                             WhiteList = whiteList,
@@ -450,7 +465,7 @@ Starting...
 
                     //Add root to the list
                     hosts.Add(root);
-                    log.Information(FOUND_VH_TEMPLATE, hostname, serverEndpoint, cert != null, whiteList, downstreamServers);
+                    log.Information(FOUND_VH_TEMPLATE, hostname, serverEndpoint, cert != null, whiteList, downstreamServers, allowedAuthority);
                 }
                 return true;
             }

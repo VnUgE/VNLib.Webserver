@@ -6,26 +6,25 @@
     <Nullable>enable</Nullable>
     <AssemblyName>VNLib.WebServer</AssemblyName>
     <RootNamespace>VNLib.WebServer</RootNamespace>
-    <Version>1.0.1.1</Version>
-    <SignAssembly>True</SignAssembly>
-    <AssemblyOriginatorKeyFile>\\vaughnnugent.com\Internal\Folder Redirection\vman\Documents\Programming\Software\StrongNameingKey.snk</AssemblyOriginatorKeyFile>
+    <Version>1.0.1.2</Version>
     <AnalysisLevel>latest-all</AnalysisLevel>
   </PropertyGroup>
 
   <PropertyGroup>
     <Authors>Vaughn Nugent</Authors>
+    <Company>Vaughn Nugent</Company>
     <Description>A complete .NET 6 Web server using VNLib.HTTP</Description>
     <Copyright>Copyright © 2023 Vaughn Nugent</Copyright>
-    <PackageProjectUrl>https://www.vaughnnugent.com/resources/software</PackageProjectUrl>
+    <Product>VNLib.Webserver</Product>
+    <PackageProjectUrl>https://www.vaughnnugent.com/resources/software/modules/VNLib.Webserver</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/VnUgE/VNLib.Webserver/</RepositoryUrl>
   </PropertyGroup>
 
   <PropertyGroup>
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <RetainVMGarbageCollection>true</RetainVMGarbageCollection>
-    <RunPostBuildEvent>OnOutputUpdated</RunPostBuildEvent>
-    <StartupObject>VNLib.WebServer.Entry</StartupObject>
-    
+    <StartupObject>VNLib.WebServer.Entry</StartupObject>    
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

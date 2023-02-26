@@ -85,6 +85,9 @@
       //Enables cors support for all endpoints and header controls, if false, all endpoints that are send CORS request headers will be forbidden
       "enable_cors": true,
 
+      //Allowed cors authoriy domains
+      "cors_allowed_authority": [],
+
       //Define a TLS certificate (enables TLS on the interface)
       "ssl": {
 
@@ -101,7 +104,7 @@
         {
           "code": 403,
           "path": "path/to/403"
-        },
+        }
 
       ],
       //The default 

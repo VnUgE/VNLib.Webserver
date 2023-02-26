@@ -99,5 +99,11 @@ namespace VNLib.WebServer
         /// The default response entity cache value
         /// </summary>
         public TimeSpan CacheDefault { get; init; }
+
+        /// <summary>
+        /// A collection of allowed cors sites, otherwise defaults to the 
+        /// connections supplied origin authority
+        /// </summary>
+        public IReadOnlySet<string>? AllowedCorsAuthority { get; init; }
     }
 }

@@ -192,6 +192,16 @@ namespace VNLib.WebServer
              */
             if (VirtualHostOptions.AllowCors)
             {
+                //Confirm the origin is allowed during cors connections
+                if (entity.Server.CrossOrigin && VirtualHostOptions.AllowedCorsAuthority != null)
+                {
+                    //If the authority is not allowed, deny the connection
+                    if (!VirtualHostOptions.AllowedCorsAuthority.Contains(entity.Server.Origin!.Authority))
+                    {
+                        return ValueTask.FromResult(FileProcessArgs.Deny);
+                    }
+                }
+
                 if (isCors)
                 {
                     //set the allow credentials header
@@ -226,8 +236,8 @@ namespace VNLib.WebServer
                 }
             }
 
-            //If the connection is cors, then an origin header must be supplied
-            if (isCors)
+            //If the connection is a cross-site, then an origin header must be supplied
+            if (isCrossSite)
             {
                 //Enforce origin header
                 if (entity.Server.Origin == null)

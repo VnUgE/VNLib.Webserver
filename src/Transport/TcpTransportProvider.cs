@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2022 Vaughn Nugent
+* Copyright (c) 2023 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -146,10 +146,10 @@ namespace VNLib.WebServer.Transport
 
             ///<inheritdoc/>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            async ValueTask ITransportContext.CloseConnectionAsync()
+            ValueTask ITransportContext.CloseConnectionAsync()
             {
                 //Close the connection with the TCP server
-                await _eventContext.CloseConnectionAsync();
+                return _eventContext.CloseConnectionAsync();
             }
 
             

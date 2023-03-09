@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2022 Vaughn Nugent
+* Copyright (c) 2023 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -70,7 +70,7 @@ namespace VNLib.WebServer
         const string STARTUP_MESSAGE =
 @"VNLib Copyright (C) Vaughn Nugent
 This program comes with ABSOLUTELY NO WARRANTY.
-Licensing for this software and other libraries can be found at https://www.vaughnnugent.com/resources/vnlib
+Licensing for this software and other libraries can be found at https://www.vaughnnugent.com/resources/software
 Starting...
 ";
 
@@ -125,6 +125,8 @@ Starting...
         private const string SERVER_WHITELIST_PROP_NAME = "whitelist";
 
         private const string LOAD_DEFAULT_HOSTNAME_VALUE = "[system]";
+
+        private const string PLUGINS_CONFIG_PROP_NAME = "plugins";
        
 
         static int Main(string[] args)
@@ -267,8 +269,20 @@ Starting...
                 }
                 else
                 {
+                    //Try to get the plugins element
+                    _ = config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg);
+
+                    //Build plugin config
+                    PluginLoadConfiguration conf = new()
+                    {
+                        PluginErrorLog = logger.AppLog,
+                        HostConfig = config,
+                        HotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean(),
+                        PluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins",
+                    };
+
                     //Wait for plugins to load
-                    builder.ServiceDomain.LoadPlugins(config, logger.AppLog).Wait();
+                    builder.ServiceDomain.PluginManager.LoadPluginsAsync(conf, logger.AppLog).Wait();
                 }
 
                 //Build servers
@@ -317,6 +331,10 @@ Starting...
                     {
                         //If the hostname value is exactly the matching path, then replace it for the dns hostname
                         hostname = hostname?.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName());
+
+                        //Check hostname and root path
+                        _ = hostname ?? throw new ArgumentException($"A virtual host was defined without a hostname property: '{SERVER_HOSTNAME_PROP_NAME}'");
+                        _ = rootPath ?? throw new ArgumentException($"A virtual host was defined without a root directory property: '{SERVER_ROOT_PATH_PROP_NAME}'");
                     }
                     //Setup a default service interface
                     IPEndPoint serverEndpoint = DefaultInterface;
@@ -347,7 +365,6 @@ Starting...
 
                                 //Load the cert and decrypt with password if set
                                 cert = password == null ? new(certPath.GetString()!) : new(certPath.GetString()!, (string)password);
-
                             }
                         }
                     }
@@ -426,45 +443,45 @@ Starting...
                                                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
                         }
                     }
-                    
-                    //Create a new server root 
-                    VirtualHost root = new(rootPath, hostname, log)
-                    {
-                        //Configure ep options
-                        VirtualHostOptions = new EPOptionsImpl()
-                        {
-                            AllowCors = rootConf.TryGetValue(SERVER_CORS_ENEABLE_PROP_NAME, out JsonElement corsEl) && corsEl.GetBoolean(),
-                            AllowedCorsAuthority = allowedAuthority,
-                            
-                            //Set optional whitelist
-                            WhiteList = whiteList,
-                            
-                            //Set required downstream servers
-                            DownStreamServers = downstreamServers,
-                            ExcludedExtensions = excludedExtensions,
-                            DefaultFiles = defaultFiles,
-                            
-                            //store certificate
-                            Certificate = cert,
-                            //Set inerface
-                            TransportEndpoint = serverEndpoint,
-                            PathFilter = pathFilter,
-                            
-                            //Get optional security config options
-                            RefererPolicy = rootConf.GetPropString(SERVER_REFER_POLICY_PROP_NAME),                           
-                            HSTSHeader = rootConf.GetPropString(SERVER_HSTS_HEADER_PROP_NAME),
-                            ContentSecurityPolicy = rootConf.GetPropString(SERVER_CONTENT_SEC_PROP_NAME),                            
 
-                            CacheDefault = rootConf[SERVER_CACHE_DEFAULT_PROP_NAME].GetTimeSpan(TimeParseType.Seconds),
-                            
-                            //execution timeout
-                            ExecutionTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds)
-                        },
+                    //Declare the vh config
+                    VirtualHostConfig vhConfig = new()
+                    {
+                        AllowCors = rootConf.TryGetValue(SERVER_CORS_ENEABLE_PROP_NAME, out JsonElement corsEl) && corsEl.GetBoolean(),
+                        AllowedCorsAuthority = allowedAuthority,
+
+                        //Set optional whitelist
+                        WhiteList = whiteList,
+
+                        //Set required downstream servers
+                        DownStreamServers = downstreamServers,
+                        ExcludedExtensions = excludedExtensions,
+                        DefaultFiles = defaultFiles,
+
+                        //store certificate
+                        Certificate = cert,
+                        //Set inerface
+                        TransportEndpoint = serverEndpoint,
+                        PathFilter = pathFilter,
+
+                        //Get optional security config options
+                        RefererPolicy = rootConf.GetPropString(SERVER_REFER_POLICY_PROP_NAME),
+                        HSTSHeader = rootConf.GetPropString(SERVER_HSTS_HEADER_PROP_NAME),
+                        ContentSecurityPolicy = rootConf.GetPropString(SERVER_CONTENT_SEC_PROP_NAME),
+
+                        CacheDefault = rootConf[SERVER_CACHE_DEFAULT_PROP_NAME].GetTimeSpan(TimeParseType.Seconds),
+
+                        //execution timeout
+                        ExecutionTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds),
+
                         FailureFiles = ff ?? new Dictionary<HttpStatusCode, FailureFile>(),
                     };
 
+
+                    RuntimeServiceHost host = new(rootPath, hostname, log, vhConfig);
+
                     //Add root to the list
-                    hosts.Add(root);
+                    hosts.Add(host);
                     log.Information(FOUND_VH_TEMPLATE, hostname, serverEndpoint, cert != null, whiteList, downstreamServers, allowedAuthority);
                 }
                 return true;
@@ -641,7 +658,7 @@ Starting...
 
                             string message = string.Join(' ', s);
 
-                            bool sent = serviceStack.PluginController.SendCommandToPlugin(s[1], message);
+                            bool sent = serviceStack.PluginManager.SendCommandToPlugin(s[1], message);
 
                             if (!sent)
                             {
@@ -654,7 +671,7 @@ Starting...
                             try
                             {
                                 //Reload all plugins
-                                serviceStack.PluginController.ForceReloadAllPlugins();
+                                serviceStack.PluginManager.ForceReloadAllPlugins();
                             }
                             catch (Exception ex)
                             {

@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2022 Vaughn Nugent
+* Copyright (c) 2023 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -25,6 +25,7 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Threading;
 using System.Globalization;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -39,59 +40,71 @@ using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.Sessions;
 using VNLib.Plugins.Essentials.Accounts;
 using VNLib.Plugins.Essentials.Extensions;
-using VNLib.Plugins.Essentials.ServiceStack;
 
 namespace VNLib.WebServer
 {
-
-    internal sealed class VirtualHost : EventProcessor, IServiceHost
+    internal sealed class VirtualHost : EventProcessor
     {
         private const int FILE_PATH_BUILDER_BUFFER_SIZE = 4096;
 
-        private readonly DirectoryInfo Root;
-
         private static readonly string CultreInfo = CultureInfo.InstalledUICulture.Name;
 
-        public IReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; }
-      
+        private readonly DirectoryInfo Root;
+        private readonly string DefaultCacheString;
+
         ///<inheritdoc/>
         public override string Hostname { get; }
+
         ///<inheritdoc/>
         public override string Directory => Root.FullName;
+
         ///<inheritdoc/>
         protected override ILogProvider Log { get; }
 
         ///<inheritdoc/>
+        public override IReadOnlyDictionary<string, Redirect> Redirects => Options.HardRedirects;
+
+        ///<inheritdoc/>
         public override IEpProcessingOptions Options => VirtualHostOptions;
 
-        public EPOptionsImpl VirtualHostOptions { get; init; }
+        public VirtualHostConfig VirtualHostOptions { get; }
 
-        //Explict pass of service host information
-        EventProcessor IServiceHost.Processor => this;
-        IHostTransportInfo IServiceHost.TransportInfo => VirtualHostOptions;
+        private IAccountSecurityProvider _accountSecurityProvider;
+        public override IAccountSecurityProvider AccountSecurity => _accountSecurityProvider;
 
-#nullable disable
-        public VirtualHost(string path, string hostName, ILogProvider log)
+
+        public VirtualHost(string path, string hostName, ILogProvider log, VirtualHostConfig config)
         {
             Root = new DirectoryInfo(path);
+
             if (!Root.Exists)
             {
                 Root.Create();
             }
+
             Hostname = hostName;
-            //Inint default cache string
-            DefaultCacheString = new(() => 
-                HttpHelpers.GetCacheString(CacheType.Public, (int)VirtualHostOptions.CacheDefault.TotalSeconds),
-                System.Threading.LazyThreadSafetyMode.PublicationOnly
-            );
             Log = log;
+            VirtualHostOptions = config;
+
+            //Inint default cache string
+            DefaultCacheString = HttpHelpers.GetCacheString(CacheType.Public, (int)config.CacheDefault.TotalSeconds);
+
+            //Configure a default provider
+            _accountSecurityProvider = default!;
         }
-#nullable enable
+
+        internal void SetSecurityProvider(IAccountSecurityProvider? secProv)
+        {
+            //Set to default provider
+            secProv ??= default!;
+
+            _ = Interlocked.Exchange(ref _accountSecurityProvider, secProv);
+        }
 
         public override bool ErrorHandler(HttpStatusCode errorCode, IHttpEvent ev)
         {
             //Make sure the connection accepts html
-            if (ev.Server.Accepts(ContentType.Html) && FailureFiles.TryGetValue(errorCode, out FailureFile? ff))
+            if (ev.Server.Accepts(ContentType.Html) && VirtualHostOptions.FailureFiles.TryGetValue(errorCode, out FailureFile? ff))
             {
                 ev.Server.SetNoCache();
                 ev.CloseResponse(errorCode, ContentType.Html, ff.GetReader());
@@ -285,10 +298,6 @@ namespace VNLib.WebServer
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }
                 }
-
-                //Reconcile cookies with the session
-                entity.ReconcileCookies();
-               
             }           
             return ValueTask.FromResult(FileProcessArgs.Continue);
         }
@@ -369,8 +378,6 @@ namespace VNLib.WebServer
             }
         }
 
-        private readonly Lazy<string> DefaultCacheString;
-
         private void SetCache(HttpEntity entity, ContentType ct)
         {
             //If request issued no cache request, set nocache headers
@@ -389,12 +396,11 @@ namespace VNLib.WebServer
                     case ContentType.Avi:
                     case ContentType.Avif:
                     case ContentType.Gif:
-                        entity.Server.Headers[HttpResponseHeader.CacheControl] = DefaultCacheString.Value;
+                        entity.Server.Headers[HttpResponseHeader.CacheControl] = DefaultCacheString;
                         return;
                     case ContentType.NonSupported:
                         return;
                     default:
-                        entity.Server.SetNoCache();
                         break;
                 }
             }

@@ -1,11 +1,11 @@
 ﻿/*
-* Copyright (c) 2022 Vaughn Nugent
+* Copyright (c) 2023 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
-* File: EPOptionsImpl.cs 
+* File: VirtualHostConfig.cs 
 *
-* EPOptionsImpl.cs is part of VNLib.WebServer which is part of the larger 
+* VirtualHostConfig.cs is part of VNLib.WebServer which is part of the larger 
 * VNLib collection of libraries and utilities.
 *
 * VNLib.WebServer is free software: you can redistribute it and/or modify 
@@ -29,8 +29,10 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography.X509Certificates;
 
+using VNLib.Net.Http;
 using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.ServiceStack;
+
 
 namespace VNLib.WebServer
 {
@@ -38,7 +40,7 @@ namespace VNLib.WebServer
     /// Implementation of <see cref="IEpProcessingOptions"/>
     /// with <see cref="VirtualHost"/> extra processing options
     /// </summary>
-    internal sealed class EPOptionsImpl : IEpProcessingOptions, IHostTransportInfo
+    internal sealed class VirtualHostConfig : IEpProcessingOptions, IHostTransportInfo
     {
         ///<inheritdoc/>
         public FileAttributes AllowedAttributes { get; } = FileAttributes.Archive | FileAttributes.Compressed | FileAttributes.Normal | FileAttributes.ReadOnly;
@@ -60,8 +62,9 @@ namespace VNLib.WebServer
         ///<inheritdoc/>
         public IReadOnlySet<IPAddress> DownStreamServers { get; set; } = new HashSet<IPAddress>();
         ///<inheritdoc/>
+        public IReadOnlyDictionary<string, Redirect> HardRedirects { get; set; } = new Dictionary<string, Redirect>();
+        ///<inheritdoc/>
         public TimeSpan ExecutionTimeout { get; set; } = TimeSpan.FromSeconds(60);
-
 
         /// <summary>
         /// Endables cross origin resoruce sharing protections
@@ -105,5 +108,11 @@ namespace VNLib.WebServer
         /// connections supplied origin authority
         /// </summary>
         public IReadOnlySet<string>? AllowedCorsAuthority { get; init; }
+
+        /// <summary>
+        /// A collection of in-memory files to send in response to processing error
+        /// codes.
+        /// </summary>
+        public IReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; } = new Dictionary<HttpStatusCode, FailureFile>();
     }
 }

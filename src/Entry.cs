@@ -42,6 +42,7 @@ using VNLib.Utils.IO;
 using VNLib.Utils.Memory;
 using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
+using VNLib.Utils.Memory.Diagnostics;
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
 using VNLib.Plugins.Essentials.ServiceStack;
@@ -679,17 +680,70 @@ Starting...
                             }
                         }
                         break;
-                    case "stats":
+                    case "memstats":
                         {
+                            const string MANAGED_HEAP_STATS = @"
+         Managed Heap Stats
+--------------------------------------
+ Collections: 
+   Gen0: {g0} Gen1: {g1} Gen2: {g2}
+
+ Heap:
+  High Watermark:    {hw} KB
+  Last GC Heap Size: {hz} KB
+  Current Load:      {ld} KB
+  Fragmented:        {fb} KB
+
+ Heap Info:
+  Last GC concurrent? {con}
+  Last GC compacted?  {comp}
+  Pause time:         {pt} %
+  Pending finalizers: {pf}
+  Pinned objects:     {po}
+";
+
+                            //Collect gc info for managed heap stats
                             int gen0 = GC.CollectionCount(0);
                             int gen1 = GC.CollectionCount(1);
                             int gen2 = GC.CollectionCount(2);
-                            appLog.Debug("Collection Gen0 {gen0} Gen1 {gen1} Gen2 {gen2}", gen0, gen1, gen2);
                             GCMemoryInfo mi = GC.GetGCMemoryInfo();
-                            appLog.Debug("Compacted {cp} Last Size {lz}kb, Pause % {pa}", mi.Compacted, mi.HeapSizeBytes / 1024, mi.PauseTimePercentage);
-                            appLog.Debug("High watermark {hw}kb Current Load {cc}kb", mi.HighMemoryLoadThresholdBytes / 1024, mi.MemoryLoadBytes / 1024);
-                            appLog.Debug("Fargmented kb {frag} Concurrent {cc}", mi.FragmentedBytes / 1024, mi.Concurrent);
-                            appLog.Debug("Pending finalizers {pf} Pinned Objects {pinned}", mi.FinalizationPendingCount, mi.PinnedObjectsCount);
+
+                            appLog.Debug(MANAGED_HEAP_STATS,
+                                gen0,
+                                gen1,
+                                gen2,
+                                mi.HighMemoryLoadThresholdBytes / 1024,
+                                mi.HeapSizeBytes / 1024,
+                                mi.MemoryLoadBytes / 1024,
+                                mi.FragmentedBytes / 1024,
+                                mi.Concurrent,
+                                mi.Compacted,
+                                mi.PauseTimePercentage,
+                                mi.FinalizationPendingCount,
+                                mi.PinnedObjectsCount);
+
+                            //Get heap stats
+                            HeapStatistics hs = MemoryUtil.GetSharedHeapStats();
+                           
+                            const string HEAPSTATS = @"
+    Umanaged Heap Stats
+---------------------------
+ librpmalloc? {rp}
+ Allocated bytes:   {ab}
+ Allocated handles: {h}
+ Max block size:    {mb}
+ Min block size:    {mmb}
+ Max heap size:     {hs}
+";
+
+                            //Print unmanaged heap stats
+                            appLog.Debug(HEAPSTATS,
+                                MemoryUtil.IsRpMallocLoaded,
+                                hs.AllocatedBytes,
+                                hs.AllocatedBlocks,
+                                hs.MaxBlockSize,
+                                hs.MinBlockSize,
+                                hs.MaxHeapSize);
                         }
                         break;
                     case "collect":

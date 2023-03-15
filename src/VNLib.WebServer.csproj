@@ -6,7 +6,6 @@
     <Nullable>enable</Nullable>
     <AssemblyName>VNLib.WebServer</AssemblyName>
     <RootNamespace>VNLib.WebServer</RootNamespace>
-    <Version>1.0.1.2</Version>
     <AnalysisLevel>latest-all</AnalysisLevel>
   </PropertyGroup>
 

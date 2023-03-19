@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2022 Vaughn Nugent
+* Copyright (c) 2023 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -42,16 +42,8 @@ namespace VNLib.WebServer.TcpMemoryPool
         /// <returns>The memory pool</returns>
         public static MemoryPool<T> GetPool<T>() where T: unmanaged
         {           
-            if (MemoryUtil.IsRpMallocLoaded)
-            {
-                //The rpmalloc lib is loaded, it is safe to convert the shared heap to a pool
-                return RpMallocPrivateHeap.GlobalHeap.ToPool<T>();
-            }
-            //Use process heap
-            else
-            {
-                return new ProcessHeap().ToPool<T>();
-            }
+            //Use the shared heap impl. which also allows diagnostics, and is tuned
+            return MemoryUtil.Shared.ToPool<T>();
         }
     }
 }

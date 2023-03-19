@@ -363,7 +363,6 @@ Starting...
                             //Try to get the cert for the app
                             if (sslConfEl.TryGetProperty(SERVER_CERT_PROP_NAME, out JsonElement certPath))
                             {
-
                                 //Load the cert and decrypt with password if set
                                 cert = password == null ? new(certPath.GetString()!) : new(certPath.GetString()!, (string)password);
                             }

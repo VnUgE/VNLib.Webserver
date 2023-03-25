@@ -290,6 +290,19 @@ namespace VNLib.WebServer
                 //If session is not new, then verify it matches stored credentials
                 if (!entity.Session.IsNew && entity.Session.SessionType == SessionType.Web)
                 {
+                    /*
+                     * When sessions are created for connections that come from a different 
+                     * origin, their origin is stored for later. 
+                     * 
+                     * Check that the origin's match the current origin, it may be false if 
+                     * the current origin is null, so if the origin is set and the origins dont 
+                     * match, deny the request
+                     */
+                    if(!entity.Session.CrossOriginMatch && entity.Server.Origin != null)
+                    {
+                        return ValueTask.FromResult(FileProcessArgs.Deny);
+                    }
+
                     if (!(entity.Session.IPMatch 
                         && entity.Session.UserAgent.Equals(entity.Server.UserAgent, StringComparison.Ordinal)
                         && entity.Session.SecurityProcol <= entity.Server.SecurityProtocol)

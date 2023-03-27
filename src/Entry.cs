@@ -138,7 +138,7 @@ Starting...
             if (procArgs.RpMalloc)
             {
                 //Set initial env to use the rpmalloc allocator for the default heaps
-                Environment.SetEnvironmentVariable(MemoryUtil.SHARED_HEAP_TYPE_ENV, "rpmalloc", EnvironmentVariableTarget.Process);
+                Environment.SetEnvironmentVariable(MemoryUtil.SHARED_HEAP_FILE_PATH, "rpmalloc.dll", EnvironmentVariableTarget.Process);
             }
 
             Console.WriteLine(STARTUP_MESSAGE);
@@ -727,7 +727,7 @@ Starting...
                             const string HEAPSTATS = @"
     Umanaged Heap Stats
 ---------------------------
- librpmalloc? {rp}
+ userHeap? {rp}
  Allocated bytes:   {ab}
  Allocated handles: {h}
  Max block size:    {mb}
@@ -737,7 +737,7 @@ Starting...
 
                             //Print unmanaged heap stats
                             appLog.Debug(HEAPSTATS,
-                                MemoryUtil.IsRpMallocLoaded,
+                                MemoryUtil.IsUserDefinedHeap,
                                 hs.AllocatedBytes,
                                 hs.AllocatedBlocks,
                                 hs.MaxBlockSize,

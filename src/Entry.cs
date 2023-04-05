@@ -34,9 +34,7 @@ using System.Net.Security;
 using System.IO.Compression;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using System.Security.Authentication;
 using System.Runtime.ExceptionServices;
-using System.Security.Cryptography.X509Certificates;
 
 using VNLib.Utils.IO;
 using VNLib.Utils.Memory;
@@ -61,12 +59,15 @@ using VNLib.WebServer.RuntimeLoading;
 * --log-http prints raw http requests to the application log
 * --rpmalloc to force enable the rpmalloc library loading for the Memory class
 * --no-plugins disables plugin loading
+* -t --threads specify the number of accept threads
+* --use-os-ciphers disables hard-coded cipher suite and lets the OS decide the ciphersuite for ssl connections
 */
 
 
 namespace VNLib.WebServer
 {
-    static class Entry
+
+    static partial class Entry
     {
         const string STARTUP_MESSAGE =
 @"VNLib Copyright (C) Vaughn Nugent
@@ -91,11 +92,7 @@ Starting...
             BackLog = 1000
         };
 
-        private static readonly List<SslApplicationProtocol> SslAppProtocols = new()
-        {
-            SslApplicationProtocol.Http11,
-            //SslApplicationProtocol.Http2,
-        };
+        private const int CHUNCKED_ACC_BUFFER_SIZE = 64 * 1024;
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
       
@@ -106,20 +103,21 @@ Starting...
         private const string SERVER_ENDPOINT_PORT_PROP_NAME = "port";
         private const string SERVER_ENDPOINT_IP_PROP_NAME = "address";
         private const string SERVER_CERT_PROP_NAME = "cert";
+        private const string SERVER_PRIV_KEY_PROP_NAME = "privkey";
         private const string SERVER_SSL_PROP_NAME = "ssl";
+        private const string SERVER_SSL_CREDS_REQUIRED_PROP_NAME = "client_cert_required";
         private const string SERVER_HOSTNAME_PROP_NAME = "hostname";
+        private const string SERVER_HOSTNAME_ARRAY_PROP_NAME = "hostnames";
         private const string SERVER_ROOT_PATH_PROP_NAME = "path";
         private const string SESSION_TIMEOUT_PROP_NAME = "max_execution_time_ms";
         private const string SERVER_DEFAULT_FILE_PROP_NAME = "default_files";
         private const string SERVER_DENY_EXTENSIONS_PROP_NAME = "default_files";
-        private const string SERVER_CONTENT_SEC_PROP_NAME = "content_security_policy";
         private const string SERVER_PATH_FILTER_PROP_NAME = "path_filter";
-        private const string SERVER_REFER_POLICY_PROP_NAME = "refer_policy";
         private const string SERVER_CORS_ENEABLE_PROP_NAME = "enable_cors";
-        private const string SERVER_HSTS_HEADER_PROP_NAME = "hsts_header";
         private const string SERVER_CACHE_DEFAULT_PROP_NAME = "cache_default_sec";
         private const string SERVER_CORS_AUTHORITY_PROP_NAME = "cors_allowed_authority";
         private const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
+        private const string SERVER_HEADERS_PROP_NAME = "headers";
 
         private const string HTTP_CONF_PROP_NAME = "http";
 
@@ -248,7 +246,7 @@ Starting...
 
         #endregion
 
-        public static HttpServiceStack? BuildStack(ServerLogger logger, ProcessArguments args, in HttpConfig httpConfig, JsonDocument config)
+        private static HttpServiceStack? BuildStack(ServerLogger logger, ProcessArguments args, in HttpConfig httpConfig, JsonDocument config)
         {
             //Init service stack
             HttpServiceStackBuilder builder = new();
@@ -268,17 +266,17 @@ Starting...
                 {
                     logger.AppLog.Information("Plugin loading disabled via command line flag");
                 }
-                else
+                //Only load plugins if the plugins property is defined
+                else if(config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
                 {
-                    //Try to get the plugins element
-                    _ = config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg);
-
                     //Build plugin config
                     PluginLoadConfiguration conf = new()
                     {
                         PluginErrorLog = logger.AppLog,
                         HostConfig = config,
+                        //Hot reload is disabled by default
                         HotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean(),
+
                         PluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins",
                     };
 
@@ -301,13 +299,17 @@ Starting...
 @"
 --------------------------------------------------
  |           Found virtual host:
- | hostname: {hn}
+ | hostnames: {hn}
+ | directory: {dir}
  | Listening on: {ep}
- | SSL: {ssl}
+ | SSL: {ssl}, Client Cert Required: {cc}
  | Whitelist entries: {wl}
  | Downstream servers: {ds}
+ | Cors Enabled: {enlb}
  | Allowed Cors Sites: {cors}
 --------------------------------------------------";
+
+        record class HostAndRoot(string HostName, string RootPath) {}
 
         /// <summary>
         /// Loads all server roots from the configuration file
@@ -319,170 +321,53 @@ Starting...
         {
             try
             {
-                //Enumerate all virtual hosts
+                //Enumerate all virtual host configurations
                 foreach (JsonElement rootEl in config.RootElement.GetProperty(HOSTS_CONFIG_PROP_NAME).EnumerateArray())
                 {
-                    //Get root config as dict
-                    IReadOnlyDictionary<string, JsonElement> rootConf = rootEl.EnumerateObject().ToDictionary(static kv => kv.Name, static kv => kv.Value);
+                    //execution timeout
+                    TimeSpan execTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds);
 
-                    //Get the hostname and path of the root
-                    string? hostname = rootConf[SERVER_HOSTNAME_PROP_NAME].GetString();
-                    string? rootPath = rootConf[SERVER_ROOT_PATH_PROP_NAME].GetString();
-                    //Default hostname setup
-                    {
-                        //If the hostname value is exactly the matching path, then replace it for the dns hostname
-                        hostname = hostname?.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName());
+                    //Inint config builder
+                    VirtualHostConfigBuilder builder = new(rootEl, execTimeout);
 
-                        //Check hostname and root path
-                        _ = hostname ?? throw new ArgumentException($"A virtual host was defined without a hostname property: '{SERVER_HOSTNAME_PROP_NAME}'");
-                        _ = rootPath ?? throw new ArgumentException($"A virtual host was defined without a root directory property: '{SERVER_ROOT_PATH_PROP_NAME}'");
-                    }
-                    //Setup a default service interface
-                    IPEndPoint serverEndpoint = DefaultInterface;
-                    {
-                        //Get the interface binding for this host
-                        if (rootConf.TryGetValue(SERVER_ENDPOINT_PROP_NAME, out JsonElement interfaceEl))
-                        {
-                            //Get the stored IP address
-                            string ipaddr = interfaceEl.GetProperty(SERVER_ENDPOINT_IP_PROP_NAME).GetString()!;
-                            IPAddress addr = IPAddress.Parse(ipaddr);
-                            //Get the port
-                            int port = interfaceEl.GetProperty(SERVER_ENDPOINT_PORT_PROP_NAME).GetInt32();
-                            //create the new interface
-                            serverEndpoint = new(addr, port);
-                        }
-                    }
-                    X509Certificate? cert = null;
-                    {
-                        //Get ssl object
-                        if(rootConf.TryGetValue(SERVER_SSL_PROP_NAME, out JsonElement sslConfEl))
-                        {
-                            //try to get a certificate password
-                            using PrivateString? password = (PrivateString?)sslConfEl.GetPropString("password");
+                    //Get hostname array
+                    string[] hostNames = builder.GetHostnameList();
 
-                            //Try to get the cert for the app
-                            if (sslConfEl.TryGetProperty(SERVER_CERT_PROP_NAME, out JsonElement certPath))
-                            {
-                                //Load the cert and decrypt with password if set
-                                cert = password == null ? new(certPath.GetString()!) : new(certPath.GetString()!, (string)password);
-                            }
-                        }
+                    //Get the configuration
+                    VirtualHostConfig conf = builder.Build();
+
+                    //Create directory if it doesnt exist yet
+                    if (!Directory.Exists(conf.FileRoot))
+                    {
+                        Directory.CreateDirectory(conf.FileRoot);
                     }
 
-                    //Allow site to define a regex filter pattern
-                    Regex pathFilter = DefaultRootRegex;
+                    //Create a new vritual host for every hostname using the same configuration
+                    foreach(string hostName in hostNames)
                     {
-                        if (rootConf.TryGetValue(SERVER_PATH_FILTER_PROP_NAME, out JsonElement rootRegexEl))
-                        {
-                            pathFilter = new(rootRegexEl.GetString()!);
-                        }
+                        //Substitute the dns hostname variable
+                        string hn = hostName.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName(), StringComparison.OrdinalIgnoreCase);
+
+                        //Create service host from the configuration and the hostname
+                        RuntimeServiceHost host = new(hn, log, conf);
+
+                        //Add root to the list
+                        hosts.Add(host);
                     }
 
-                    //Build error files
-                    Dictionary<HttpStatusCode, FailureFile>? ff = null;
-                    {
-                        //if a failure file array is specified, capure all files and
-                        if (rootConf.TryGetValue(SERVER_ERROR_FILE_PROP_NAME, out JsonElement errEl))
-                        {
-                            IEnumerable<KeyValuePair<HttpStatusCode, FailureFile>> ffs = (from f in errEl.EnumerateArray()
-                                                                                          select new KeyValuePair<HttpStatusCode, FailureFile>(
-                                                                                              (HttpStatusCode)f.GetProperty("code").GetInt32(),
-                                                                                              new((HttpStatusCode)f.GetProperty("code").GetInt32(),
-                                                                                              f.GetProperty("path").GetString()!)));
-                            ff = new(ffs);
-                        }
-                    }
-
-                    //Find downstream servers
-                    HashSet<IPAddress> downstreamServers = new();
-                    {
-                        //See if element is set
-                        if (rootConf.TryGetValue(DOWNSTREAM_TRUSTED_SERVERS_PROP, out JsonElement downstreamEl))
-                        {
-                            //hash endpoints 
-                            downstreamServers = downstreamEl.EnumerateArray().Select(static addr => IPAddress.Parse(addr.GetString()!)).ToHashSet();
-                        }
-                    }
-
-                    //Check Whitelist
-                    HashSet<IPAddress>? whiteList = null;
-                    {
-                        //See if whitelist is defined
-                        if(rootConf.TryGetValue(SERVER_WHITELIST_PROP_NAME, out JsonElement wlEl))
-                        {
-                            whiteList = wlEl.EnumerateArray().Select(static addr => IPAddress.Parse(addr.GetString()!)).ToHashSet();
-                        }
-                    }
-
-                    HashSet<string> excludedExtensions = new();
-                    {
-                        if (rootConf.TryGetValue(SERVER_DENY_EXTENSIONS_PROP_NAME, out JsonElement denyEl))
-                        {
-                            //get blocked extensions for the root
-                            excludedExtensions = denyEl.EnumerateArray().Select(static el => el.GetString()).ToHashSet()!;
-                        }
-                    }
-
-                    List<string> defaultFiles = new();
-                    {
-                        if (rootConf.TryGetValue(SERVER_DEFAULT_FILE_PROP_NAME, out JsonElement defFileEl))
-                        {
-                            //Get blocked extensions for the root
-                            defaultFiles = defFileEl.EnumerateArray().Select(static s => s.GetString()).ToList()!;
-                        }
-                    }
-
-                    HashSet<string>? allowedAuthority = null;
-                    {
-                        //Cors authority will be a list of case-insenitive strings we will convert to a hashset
-                        if(rootConf.TryGetValue(SERVER_CORS_AUTHORITY_PROP_NAME, out JsonElement corsAuthEl))
-                        {
-                            allowedAuthority = corsAuthEl.EnumerateArray()
-                                                        .Where(static v => v.GetString() != null)
-                                                        .Select(static v => v.GetString()!)
-                                                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                        }
-                    }
-
-                    //Declare the vh config
-                    VirtualHostConfig vhConfig = new()
-                    {
-                        AllowCors = rootConf.TryGetValue(SERVER_CORS_ENEABLE_PROP_NAME, out JsonElement corsEl) && corsEl.GetBoolean(),
-                        AllowedCorsAuthority = allowedAuthority,
-
-                        //Set optional whitelist
-                        WhiteList = whiteList,
-
-                        //Set required downstream servers
-                        DownStreamServers = downstreamServers,
-                        ExcludedExtensions = excludedExtensions,
-                        DefaultFiles = defaultFiles,
-
-                        //store certificate
-                        Certificate = cert,
-                        //Set inerface
-                        TransportEndpoint = serverEndpoint,
-                        PathFilter = pathFilter,
-
-                        //Get optional security config options
-                        RefererPolicy = rootConf.GetPropString(SERVER_REFER_POLICY_PROP_NAME),
-                        HSTSHeader = rootConf.GetPropString(SERVER_HSTS_HEADER_PROP_NAME),
-                        ContentSecurityPolicy = rootConf.GetPropString(SERVER_CONTENT_SEC_PROP_NAME),
-
-                        CacheDefault = rootConf[SERVER_CACHE_DEFAULT_PROP_NAME].GetTimeSpan(TimeParseType.Seconds),
-
-                        //execution timeout
-                        ExecutionTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds),
-
-                        FailureFiles = ff ?? new Dictionary<HttpStatusCode, FailureFile>(),
-                    };
-
-
-                    RuntimeServiceHost host = new(rootPath, hostname, log, vhConfig);
-
-                    //Add root to the list
-                    hosts.Add(host);
-                    log.Information(FOUND_VH_TEMPLATE, hostname, serverEndpoint, cert != null, whiteList, downstreamServers, allowedAuthority);
+                    //Log the 
+                    log.Information(
+                        FOUND_VH_TEMPLATE,
+                        hostNames,
+                        conf.FileRoot,
+                        conf.TransportEndpoint,
+                        conf.Certificate != null,
+                        conf.ClientCertRequired,
+                        conf.WhiteList?.ToArray(),
+                        conf.DownStreamServers?.ToArray(),
+                        conf.AllowCors,
+                        conf.AllowedCorsAuthority
+                    );
                 }
                 return true;
             }
@@ -534,7 +419,7 @@ Starting...
                     ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
                     ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
                     DiscardBufferSize = httpEl["request_discard_buf_size"].GetInt32(),
-                    ChunkedResponseAccumulatorSize = 64 * 1024,
+                    ChunkedResponseAccumulatorSize = CHUNCKED_ACC_BUFFER_SIZE,
 
                     HttpEncoding = Encoding.ASCII,
                 };
@@ -544,7 +429,7 @@ Starting...
             }
             catch (KeyNotFoundException kne)
             {
-                logger.AppLog.Error("Missing required HTTP configuration varaibles {var}", kne.Message);
+                logger.AppLog.Error("Missing required HTTP configuration variables {var}", kne.Message);
             }
             catch (Exception ex)
             {
@@ -552,7 +437,6 @@ Starting...
             }
             return null;
         }      
-        
 
         private static ITransportProvider GetTransportForServiceGroup(ServiceGroup group, ILogProvider sysLog, ProcessArguments args)
         {
@@ -561,41 +445,18 @@ Starting...
             //See if certs are defined
             if (group.Hosts.Where(static h => h.TransportInfo.Certificate != null).Any())
             {
-                //Init ssl options
-
-                //Setup a cert lookup for all roots that defined certs
-                IReadOnlyDictionary<string, X509Certificate?> certLookup = group.Hosts.ToDictionary(static root => root.Processor.Hostname, static root => root.TransportInfo.Certificate)!;
-
-                //If the wildcard hostname is set save a local copy
-                X509Certificate? defaultCert = certLookup.GetValueOrDefault("*", null);
-
-                //Build the server auth options
-                sslAuthOptions = new()
+                //If any hosts have ssl enabled, all shared endpoints MUST include a certificate to be bound to the same endpoint
+                if(!group.Hosts.All(h => h.TransportInfo.Certificate != null))
                 {
-                    //Local callback for cert selection
-                    ServerCertificateSelectionCallback = delegate (object sender, string? hostName)
-                    {
-                        // use the default cert if the hostname is not specified
-                        return certLookup.GetValueOrDefault(hostName!, defaultCert)!;
-                    },
+                    throw new ServerConfigurationException("One or more service hosts declared a shared endpoint with SSL enabled but not every host declared an SSL certificate for the shared interface");
+                }
 
-                    //Eventually when HTTP2 is supported, we can select the ssl version to match
-                    ApplicationProtocols = SslAppProtocols,
-
-                    AllowRenegotiation = false,
-                    EncryptionPolicy = EncryptionPolicy.RequireEncryption,
-                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-
-                    RemoteCertificateValidationCallback = delegate (object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
-                    {
-                        return sslPolicyErrors == SslPolicyErrors.None;
-                    },
-                };
+                //Build the server auth options for this transport provider
+                sslAuthOptions = new ServerSslOptions(group.Hosts, args.HasArg("--use-os-ciphers"));
             }
-            
 
             //Check cli args thread count
-            string? procCount = args.GetArg("-t");
+            string? procCount = args.GetArg("-t") ?? args.GetArg("--threads");
 
             if(!uint.TryParse(procCount, out uint threadCount))
             {

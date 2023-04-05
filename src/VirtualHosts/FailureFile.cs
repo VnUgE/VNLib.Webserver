@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2022 Vaughn Nugent
+* Copyright (c) 2023 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -36,38 +36,11 @@ namespace VNLib.WebServer
     /// </summary>
     internal class FailureFile : InMemoryTemplate
     {
-        private class MemReader : IMemoryResponseReader
-        {
-            private readonly byte[] _memory;
-
-            private int _written;
-
-            public int Remaining { get; private set; }
-
-            internal MemReader(byte[] data)
-            {
-                //Store ref as memory
-                _memory = data;
-                Remaining = data.Length;
-            }            
-
-            public void Advance(int written)
-            {
-                _written += written;
-                Remaining -= written;
-            }
-
-            void IMemoryResponseReader.Close(){}
-            ReadOnlyMemory<byte> IMemoryResponseReader.GetMemory() => _memory.AsMemory(_written, Remaining);
-        }
-
-
         public readonly HttpStatusCode Code;
 
         private Lazy<byte[]> _templateData;
 
-        public override string TemplateName { get; }
-       
+        public override string TemplateName { get; }       
 
         /// <summary>
         /// Catch an http error code and return the selected file to user
@@ -94,6 +67,37 @@ namespace VNLib.WebServer
             return File.ReadAllBytes(TemplateFile.FullName);
         }
 
+        /// <summary>
+        /// Gets a <see cref="IMemoryResponseReader"/> wrapper that may read a copy of the 
+        /// file representation
+        /// </summary>
+        /// <returns>The <see cref="IMemoryResponseReader"/> wrapper around the file data</returns>
         public IMemoryResponseReader GetReader() => new MemReader(_templateData.Value);
+
+        private class MemReader : IMemoryResponseReader
+        {
+            private readonly byte[] _memory;
+
+            private int _written;
+
+            public int Remaining { get; private set; }
+
+            internal MemReader(byte[] data)
+            {
+                //Store ref as memory
+                _memory = data;
+                Remaining = data.Length;
+            }
+
+            public void Advance(int written)
+            {
+                _written += written;
+                Remaining -= written;
+            }
+
+            void IMemoryResponseReader.Close() { }
+
+            ReadOnlyMemory<byte> IMemoryResponseReader.GetMemory() => _memory.AsMemory(_written, Remaining);
+        }
     }
 }

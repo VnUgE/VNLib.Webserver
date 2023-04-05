@@ -36,10 +36,10 @@ namespace VNLib.WebServer
     {
         private readonly VirtualHost _host;
 
-        public RuntimeServiceHost(string path, string hostName, ILogProvider log, VirtualHostConfig config)
+        public RuntimeServiceHost(string hostName, ILogProvider log, VirtualHostConfig config)
         {
             //Init new virtual host
-            _host = new(path, hostName, log, config);
+            _host = new(hostName, log, config);
         }
 
         ///<inheritdoc/>

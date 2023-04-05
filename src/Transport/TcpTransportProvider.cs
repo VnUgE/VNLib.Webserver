@@ -39,7 +39,7 @@ namespace VNLib.WebServer.Transport
     /// <summary>
     /// A TCP server transport provider class
     /// </summary>
-    internal class TcpTransportProvider : ITransportProvider
+    internal sealed class TcpTransportProvider : ITransportProvider
     {
         private readonly TcpServer _server;
 
@@ -152,7 +152,7 @@ namespace VNLib.WebServer.Transport
                 return _eventContext.CloseConnectionAsync();
             }
 
-            
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             TransportSecurityInfo? ITransportContext.GetSecurityInfo() => _securityInfo?.Value;
         }
     }

@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2022 Vaughn Nugent
+* Copyright (c) 2023 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -53,10 +53,10 @@ namespace VNLib.WebServer.RuntimeLoading
             return this;
         }
 
-        public ServerLogBuilder BuildFromConfig(in JsonElement logEl)
+        public ServerLogBuilder BuildFromConfig(JsonElement logEl)
         {
-            InitSingleLog(in logEl, "app_log", "Application", AppLogConfig);
-            InitSingleLog(in logEl, "sys_log", "System", SysLogConfig);
+            InitSingleLog(logEl, "app_log", "Application", AppLogConfig);
+            InitSingleLog(logEl, "sys_log", "System", SysLogConfig);
             return this;
         }
 
@@ -94,7 +94,7 @@ namespace VNLib.WebServer.RuntimeLoading
             }
         }
 
-        private static void InitSingleLog(in JsonElement el, string elPath, string logName, LoggerConfiguration logConfig)
+        private static void InitSingleLog(JsonElement el, string elPath, string logName, LoggerConfiguration logConfig)
         {
             string? filePath = null;
             string? template = null;
@@ -132,18 +132,23 @@ namespace VNLib.WebServer.RuntimeLoading
                 {
                     interval = Enum.Parse<RollingInterval>(intervalEl.GetString()!, true);
                 }
+
+                //Set default objects
+                filePath ??= Path.Combine(Environment.CurrentDirectory, $"{elPath}.txt");
+                template ??= $"{{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}} [{{Level:u3}}] {logName} {{Message:lj}}{{NewLine}}{{Exception}}";
+
+                //Configure the log file writer
+                logConfig.WriteTo.File(filePath,
+                    buffered: true,
+                    retainedFileCountLimit: retainedLogs,
+                    formatProvider:null,
+                    fileSizeLimitBytes: fileSizeLimit,
+                    rollingInterval: interval,
+                    outputTemplate: template,
+                    flushToDiskInterval: flushInterval);
             }
-            //Set default objects
-            filePath ??= Path.Combine(Environment.CurrentDirectory, $"{elPath}.txt");
-            template ??= $"{{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}} [{{Level:u3}}] {logName} {{Message:lj}}{{NewLine}}{{Exception}}";
-            //Configure the log file writer
-            logConfig.WriteTo.File(filePath, 
-                buffered: true, 
-                retainedFileCountLimit: retainedLogs, 
-                fileSizeLimitBytes: fileSizeLimit, 
-                rollingInterval: interval, 
-                outputTemplate: template, 
-                flushToDiskInterval:flushInterval);
+
+            //If the log element is not specified in config, do not write log files
         }
     }
 }

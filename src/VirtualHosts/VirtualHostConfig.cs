@@ -33,7 +33,6 @@ using VNLib.Net.Http;
 using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.ServiceStack;
 
-
 namespace VNLib.WebServer
 {
     /// <summary>
@@ -56,48 +55,56 @@ namespace VNLib.WebServer
          | FileAttributes.System;
 
         ///<inheritdoc/>
-        public IReadOnlyCollection<string> DefaultFiles { get; set; } = new List<string>();
+        public IReadOnlyCollection<string> DefaultFiles { get; init; } = Array.Empty<string>();
+
         ///<inheritdoc/>
-        public IReadOnlySet<string> ExcludedExtensions { get; set; } = new HashSet<string>();
+        public IReadOnlySet<string> ExcludedExtensions { get; init; } = new HashSet<string>();
+
         ///<inheritdoc/>
-        public IReadOnlySet<IPAddress> DownStreamServers { get; set; } = new HashSet<IPAddress>();
+        public IReadOnlySet<IPAddress> DownStreamServers { get; init; } = new HashSet<IPAddress>();
+
         ///<inheritdoc/>
-        public IReadOnlyDictionary<string, Redirect> HardRedirects { get; set; } = new Dictionary<string, Redirect>();
+        public IReadOnlyDictionary<string, Redirect> HardRedirects { get; init; } = new Dictionary<string, Redirect>();
+      
         ///<inheritdoc/>
-        public TimeSpan ExecutionTimeout { get; set; } = TimeSpan.FromSeconds(60);
+        public TimeSpan ExecutionTimeout { get; init; } = TimeSpan.FromSeconds(60);
+
+        /// <summary>
+        /// The virtual host file root
+        /// </summary>
+        public string FileRoot { get; init; } = string.Empty;
 
         /// <summary>
         /// Endables cross origin resoruce sharing protections
         /// </summary>
-        public bool AllowCors { get; set; }
-        /// <summary>
-        /// The current sites Content-Secruity-Policy header value
-        /// </summary>
-        public string? ContentSecurityPolicy { get; set; }
+        public bool AllowCors { get; init; }
+
         /// <summary>
         /// The TLS certificate to use for this website
         /// </summary>
-        public X509Certificate? Certificate { get; set; }
+        public X509Certificate? Certificate { get; init; }
+
+        /// <summary>
+        /// An optional value that specifies that a client must send a certificate
+        /// on an ssl connection
+        /// </summary>
+        public bool ClientCertRequired { get; init; }
+
         /// <summary>
         /// The IP endpoint of the server that should serve this root
         /// </summary>
-        public IPEndPoint TransportEndpoint { get; set; } = new(IPAddress.Any, 80);
+        public IPEndPoint TransportEndpoint { get; init; } = new(IPAddress.Any, 80);
+
         /// <summary>
         /// A regex filter instance to filter incoming filesystem paths
         /// </summary>
-        public Regex? PathFilter { get; set; }
-        /// <summary>
-        /// Strict transport security header
-        /// </summary>
-        public string? HSTSHeader { get; init; }
+        public Regex? PathFilter { get; init; }
+      
         /// <summary>
         /// An optional whitelist set of ipaddresses that are allowed to make connections to this site
         /// </summary>
         public IReadOnlySet<IPAddress>? WhiteList { get; init; }
-        /// <summary>
-        /// Sets the site's referrer policy header
-        /// </summary>
-        public string? RefererPolicy { get; init; }
+       
         /// <summary>
         /// The default response entity cache value
         /// </summary>
@@ -114,5 +121,15 @@ namespace VNLib.WebServer
         /// codes.
         /// </summary>
         public IReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; } = new Dictionary<HttpStatusCode, FailureFile>();
+
+        /// <summary>
+        /// Allows config to specify contant additional headers
+        /// </summary>
+        public IReadOnlyList<KeyValuePair<string, string>> AdditionalHeaders { get; init; } = Array.Empty<KeyValuePair<string, string>>();
+
+        /// <summary>
+        /// Contains internal headers used for specific purposes, cherrypicked from the config headers 
+        /// </summary>
+        public IReadOnlyDictionary<string, string> SpecialHeaders { get; init; } = new Dictionary<string, string>();
     }
 }

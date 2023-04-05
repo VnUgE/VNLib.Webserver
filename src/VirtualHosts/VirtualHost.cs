@@ -56,7 +56,7 @@ namespace VNLib.WebServer
         public override string Hostname { get; }
 
         ///<inheritdoc/>
-        public override string Directory => Root.FullName;
+        public override string Directory => VirtualHostOptions.FileRoot;
 
         ///<inheritdoc/>
         protected override ILogProvider Log { get; }
@@ -70,17 +70,14 @@ namespace VNLib.WebServer
         public VirtualHostConfig VirtualHostOptions { get; }
 
         private IAccountSecurityProvider _accountSecurityProvider;
+        
+        ///<inheritdoc/>
         public override IAccountSecurityProvider AccountSecurity => _accountSecurityProvider;
 
 
-        public VirtualHost(string path, string hostName, ILogProvider log, VirtualHostConfig config)
+        public VirtualHost(string hostName, ILogProvider log, VirtualHostConfig config)
         {
-            Root = new DirectoryInfo(path);
-
-            if (!Root.Exists)
-            {
-                Root.Create();
-            }
+            Root = new DirectoryInfo(config.FileRoot);
 
             Hostname = hostName;
             Log = log;
@@ -177,23 +174,21 @@ namespace VNLib.WebServer
             //If not behind upstream server, uri ports and server ports must match
             if (!entity.IsBehindDownStreamServer && !entity.Server.EnpointPortsMatch())
             {
+                Log.Debug("Connection received on port {p} but the client host port did not match at {pp}",
+                    entity.Server.LocalEndpoint.Port, 
+                    entity.Server.RequestUri.Port);
+
                 return ValueTask.FromResult(FileProcessArgs.Deny);
-            }
-          
+            }          
 
             /*
              * downstream server will handle the transport security,
              * if the connection is not from an downstream server 
              * and is using transport security then we can specify HSTS
              */
-            if (entity.IsSecure && VirtualHostOptions.HSTSHeader != null)
+            if (entity.IsSecure)
             {
-                entity.Server.Headers["Strict-Transport-Security"] = VirtualHostOptions.HSTSHeader;
-            }
-            //Always set refer policy
-            if (VirtualHostOptions.RefererPolicy != null)
-            {
-                entity.Server.Headers["Referrer-Policy"] = VirtualHostOptions.RefererPolicy;
+                VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.Hsts);
             }
 
             //Check coors enabled
@@ -211,6 +206,7 @@ namespace VNLib.WebServer
                     //If the authority is not allowed, deny the connection
                     if (!VirtualHostOptions.AllowedCorsAuthority.Contains(entity.Server.Origin!.Authority))
                     {
+                        Log.Debug("Blocked a connection from a cross origin site {s}, because it was not whitelisted", entity.Server.Origin);
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }
                 }
@@ -219,6 +215,7 @@ namespace VNLib.WebServer
                 {
                     //set the allow credentials header
                     entity.Server.Headers["Access-Control-Allow-Credentials"] = "true";
+
                     //If cross site flag is set, or the connection has cross origin flag set, set explicit origin
                     if (entity.Server.CrossOrigin || isCrossSite && entity.Server.Origin != null)
                     {
@@ -231,12 +228,9 @@ namespace VNLib.WebServer
                 //Add sec vary headers for cors enabled sites
                 entity.Server.Headers.Append(HttpResponseHeader.Vary, "Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site");
             }
-            else
+            else if (isCors | isCrossSite)
             {
-                if(isCors || isCrossSite)
-                {
-                    return ValueTask.FromResult(FileProcessArgs.Deny);
-                }
+                return ValueTask.FromResult(FileProcessArgs.Deny);
             }
 
             //If user-navigation is set and method is get, make sure it does not contain object/embed
@@ -271,6 +265,7 @@ namespace VNLib.WebServer
 
             if (entity.Session.IsSet)
             {
+
                 /*
                 * Check if the session was established over a secure connection, 
                 * and if the current connection is insecure, redirect them to a 
@@ -287,6 +282,7 @@ namespace VNLib.WebServer
                     entity.Redirect(RedirectType.Moved, ub.Uri);
                     return ValueTask.FromResult(FileProcessArgs.VirtualSkip);
                 }
+
                 //If session is not new, then verify it matches stored credentials
                 if (!entity.Session.IsNew && entity.Session.SessionType == SessionType.Web)
                 {
@@ -303,15 +299,27 @@ namespace VNLib.WebServer
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }
 
-                    if (!(entity.Session.IPMatch 
-                        && entity.Session.UserAgent.Equals(entity.Server.UserAgent, StringComparison.Ordinal)
-                        && entity.Session.SecurityProcol <= entity.Server.SecurityProtocol)
-                    )
+                    if (!(entity.Session.IPMatch && entity.Session.SecurityProcol <= entity.Server.SecurityProtocol))
+                    {
+                        return ValueTask.FromResult(FileProcessArgs.Deny);
+                    }
+                    //If the session stored a user-agent, make sure it matches the connection
+                    else if (entity.Session.UserAgent != null && !entity.Session.UserAgent.Equals(entity.Server.UserAgent, StringComparison.Ordinal))
                     {
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }
                 }
-            }           
+            }            
+
+            //Add response headers from vh config
+            for(int i = 0; i < VirtualHostOptions.AdditionalHeaders.Count; i++)
+            {
+                //Get and append the client header value
+                KeyValuePair<string, string> header = VirtualHostOptions.AdditionalHeaders[i];
+
+                entity.Server.Headers.Append(header.Key, header.Value);
+            }
+
             return ValueTask.FromResult(FileProcessArgs.Continue);
         }
 
@@ -328,8 +336,9 @@ namespace VNLib.WebServer
 
         public override void PostProcessFile(HttpEntity entity, in FileProcessArgs chosenRoutine)
         {
-            //Set some protection headers
-            entity.Server.Headers["X-Content-Type-Options"] = "nonsniff";
+            //Get-set the x-content options headers from the client config
+            VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.XContentOption);
+
             //Get the re-written url or 
             ReadOnlySpan<char> ext;
             switch (chosenRoutine.Routine)
@@ -340,8 +349,10 @@ namespace VNLib.WebServer
                 case FpRoutine.Redirect:
                     {
                         ReadOnlySpan<char> filePath = entity.Server.Path.AsSpan();
+
                         //disable cache
                         entity.Server.SetNoCache();
+
                         //If the file is an html file or does not include an extension (inferred html) 
                         ext = Path.GetExtension(filePath);
                     }
@@ -350,8 +361,10 @@ namespace VNLib.WebServer
                 case FpRoutine.ServeOtherFQ:
                     {
                         ReadOnlySpan<char> filePath = chosenRoutine.Alternate.AsSpan();
+
                         //Use the alternal file path for extension
                         ext = Path.GetExtension(filePath);
+
                         //Set default cache
                         ContentType ct = HttpHelpers.GetContentTypeFromFile(filePath);
                         SetCache(entity, ct);
@@ -360,6 +373,7 @@ namespace VNLib.WebServer
                 default:
                     {
                         ReadOnlySpan<char> filePath = entity.Server.Path.AsSpan();
+
                         //If the file is an html file or does not include an extension (inferred html) 
                         ext = Path.GetExtension(filePath);
                         if (ext.IsEmpty)
@@ -377,11 +391,12 @@ namespace VNLib.WebServer
                     break;
             }
             
+            //if the file is an html file, we are setting the csp and xss special headers
             if (ext.IsEmpty || ext.Equals(".html", StringComparison.OrdinalIgnoreCase))
             {
-                entity.Server.Headers.Append("X-XSS-Protection", "1; mode=block;");
-                //Setup content-security policy
-                entity.Server.Headers.Append("Content-Security-Policy", VirtualHostOptions.ContentSecurityPolicy);
+                //Get/set xss protection header
+                VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.XssProtection);
+                VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.ContentSecPolicy);
             }
 
             //Set language of the server's os if the user code did not set it

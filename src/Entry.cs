@@ -207,7 +207,7 @@ Starting...
             logger.AppLog.Information("Stopping service stack");
 
             //Wait for ss to exit
-            serviceStack.StopAndWaitAsync().Wait();
+            serviceStack.StopAndWaitAsync().GetAwaiter().GetResult();
           
             //Wait for all plugins to unload and cleanup (temporary)
             Thread.Sleep(500);
@@ -246,53 +246,48 @@ Starting...
 
         #endregion
 
-        private static HttpServiceStack? BuildStack(ServerLogger logger, ProcessArguments args, in HttpConfig httpConfig, JsonDocument config)
+        private static HttpServiceStack? BuildStack(ServerLogger logger, ProcessArguments args, HttpConfig httpConfig, JsonDocument config)
         {
+            IHttpServer BuildServer(ServiceGroup group)
+            {
+                //Get transport
+                ITransportProvider transport =  GetTransportForServiceGroup(group, logger.SysLog, args);
+
+                //Build the http server
+                return new HttpServer(httpConfig, transport, group.Hosts.Select(r => r.Processor));
+            }
+
             //Init service stack
             HttpServiceStackBuilder builder = new();
-            try
+
+            builder.WithDomainBuilder(collection => LoadRoots(config, logger.AppLog, collection))
+                .WithHttp(BuildServer);
+
+            //do not load plugins if disabled
+            if (args.HasArg("--no-plugins"))
             {
-                //Build the service domain from roots
-                bool built = builder.ServiceDomain.BuildDomain(collection => LoadRoots(config, logger.AppLog, collection));
-
-                //Make sure a service stack was loaded
-                if (!built)
-                {
-                    return null;
-                }
-
-                //do not load plugins if disabled
-                if (args.HasArg("--no-plugins"))
-                {
-                    logger.AppLog.Information("Plugin loading disabled via command line flag");
-                }
-                //Only load plugins if the plugins property is defined
-                else if(config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
-                {
-                    //Build plugin config
-                    PluginLoadConfiguration conf = new()
-                    {
-                        PluginErrorLog = logger.AppLog,
-                        HostConfig = config,
-                        //Hot reload is disabled by default
-                        HotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean(),
-
-                        PluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins",
-                    };
-
-                    //Wait for plugins to load
-                    builder.ServiceDomain.PluginManager.LoadPluginsAsync(conf, logger.AppLog).Wait();
-                }
-
-                //Build servers
-                builder.BuildServers(in httpConfig, group => GetTransportForServiceGroup(group, logger.SysLog, args));
+                logger.AppLog.Information("Plugin loading disabled via command line flag");
             }
-            catch
+            //Only load plugins if the plugins property is defined
+            else if (config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
             {
-                builder.ReleaseOnError();
-                throw;
+                //Build plugin config
+                PluginLoadConfiguration conf = new()
+                {
+                    PluginErrorLog = logger.AppLog,
+                    HostConfig = config.RootElement,
+                    //Hot reload is disabled by default
+                    HotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean(),
+
+                    PluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins",
+                };
+
+                //Wait for plugins to load
+                return builder.BuildAsync(conf, logger.AppLog).GetAwaiter().GetResult();
             }
-            return builder.ServiceStack;
+
+            //Load without plugins
+            return builder.Build();
         }
 
         private const string FOUND_VH_TEMPLATE =
@@ -424,7 +419,7 @@ Starting...
                     HttpEncoding = Encoding.ASCII,
                 };
                 return conf.DefaultHttpVersion == Net.Http.HttpVersion.None
-                    ? throw new Exception("default_version is invalid, specify an RFC formatted http version 'HTTP/x.x'")
+                    ? throw new ArgumentException("Your default HTTP version is invalid, specify an RFC formatted http version 'HTTP/x.x'", "default_version")
                     : conf;
             }
             catch (KeyNotFoundException kne)
@@ -645,6 +640,6 @@ Starting...
             }
         }
 
-        private static void CollectCache(this HttpServiceStack controller) => controller.Servers.TryForeach(static server => server.CacheClear());
+        private static void CollectCache(this HttpServiceStack controller) => controller.Servers.TryForeach(static server => (server as HttpServer)!.CacheClear());
     }
 }

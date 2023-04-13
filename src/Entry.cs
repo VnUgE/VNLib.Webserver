@@ -280,6 +280,9 @@ Starting...
                     HotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean(),
 
                     PluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins",
+
+                    //Wait 1 second
+                    ReloadDelay = TimeSpan.FromSeconds(1)
                 };
 
                 //Wait for plugins to load
@@ -631,7 +634,7 @@ Starting...
                 };
                 currentDomain.AssemblyLoad += delegate (object? sender, AssemblyLoadEventArgs args)
                 {
-                    log.Verbose("Assembly loaded {asm} to appdomain {domain}", args.LoadedAssembly.FullName, currentDomain.FriendlyName);
+                    log.Verbose("Assembly loaded {asm} to appdomain {domain} from\n{location}", args.LoadedAssembly.FullName, currentDomain.FriendlyName, args.LoadedAssembly.Location);
                 };
                 currentDomain.DomainUnload += delegate (object? sender, EventArgs e)
                 {

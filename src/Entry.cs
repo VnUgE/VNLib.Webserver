@@ -45,6 +45,7 @@ using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
 using VNLib.Plugins.Essentials.ServiceStack;
 
+using VNLib.WebServer.Plugins;
 using VNLib.WebServer.Transport;
 using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
@@ -95,10 +96,10 @@ Starting...
         private const int CHUNCKED_ACC_BUFFER_SIZE = 64 * 1024;
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
-      
+
         private const string HOSTS_CONFIG_PROP_NAME = "virtual_hosts";
         private const string SERVER_ERROR_FILE_PROP_NAME = "error_files";
-        
+
         private const string SERVER_ENDPOINT_PROP_NAME = "interface";
         private const string SERVER_ENDPOINT_PORT_PROP_NAME = "port";
         private const string SERVER_ENDPOINT_IP_PROP_NAME = "address";
@@ -126,7 +127,7 @@ Starting...
         private const string LOAD_DEFAULT_HOSTNAME_VALUE = "[system]";
 
         private const string PLUGINS_CONFIG_PROP_NAME = "plugins";
-       
+
 
         static int Main(string[] args)
         {
@@ -144,7 +145,7 @@ Starting...
             //Init log config builder
             ServerLogBuilder logBuilder = new();
             logBuilder.BuildForConsole(procArgs);
-           
+
             //try to load the json configuration file
             using JsonDocument? config = LoadConfig(procArgs);
             if (config == null)
@@ -161,10 +162,10 @@ Starting...
 
             //Setup the app-domain listener
             InitAppDomainListener(procArgs, logger.AppLog);
-            
+
             //get the http conf
             HttpConfig? http = GetHttpConfig(config, procArgs, logger);
-            
+
             //If no http config is defined, we cannot continue
             if (!http.HasValue)
             {
@@ -186,21 +187,21 @@ Starting...
 
             //Start servers
             serviceStack.StartServers();
-            
+
             using ManualResetEventSlim ShutdownEvent = new(false);
-            
+
             //Start listening for commands on a background thread, so it does not interfere with async tasks on tp threads
             Thread consoleListener = new(() => StdInListenerDoWork(ShutdownEvent, logger.AppLog, serviceStack))
             {
                 //Allow the main thread to exit
                 IsBackground = true
             };
-            
+
             //Start listener thread
             consoleListener.Start();
 
             logger.AppLog.Verbose("Main thread waiting for exit signal");
-                
+
             //Wait for process cleanup/exit
             ShutdownEvent.Wait();
 
@@ -208,7 +209,7 @@ Starting...
 
             //Wait for ss to exit
             serviceStack.StopAndWaitAsync().GetAwaiter().GetResult();
-          
+
             //Wait for all plugins to unload and cleanup (temporary)
             Thread.Sleep(500);
             return 0;
@@ -225,22 +226,22 @@ Starting...
         {
             //Get the config path or default config
             string configPath = args.GetArg("--config") ?? Path.Combine(EXE_DIR.FullName, DEFAULT_CONFIG_PATH);
-            
+
             if (!FileOperations.FileExists(configPath))
             {
                 return null;
             }
-            
+
             //Open the config file
             using FileStream fs = new(configPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
-            
+
             //Allow comments
             JsonDocumentOptions jdo = new()
             {
                 CommentHandling = JsonCommentHandling.Skip,
                 AllowTrailingCommas = true,
             };
-            
+
             return JsonDocument.Parse(fs, jdo);
         }
 
@@ -251,7 +252,7 @@ Starting...
             IHttpServer BuildServer(ServiceGroup group)
             {
                 //Get transport
-                ITransportProvider transport =  GetTransportForServiceGroup(group, logger.SysLog, args);
+                ITransportProvider transport = GetTransportForServiceGroup(group, logger.SysLog, args);
 
                 //Build the http server
                 return new HttpServer(httpConfig, transport, group.Hosts.Select(r => r.Processor));
@@ -271,22 +272,51 @@ Starting...
             //Only load plugins if the plugins property is defined
             else if (config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
             {
+                bool hotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean();
+
+                PluginAssemblyLoaderFactory asmFactory = new((string asmFile) => new (asmFile)
+                {
+                    //we need to enable sharing to allow for IPlugin instances to be shared across domains
+                    PreferSharedTypes = true,
+
+                    IsUnloadable = hotReload,
+
+                    //Enable file watching
+                    WatchForReload = hotReload,
+                    ReloadDelay = TimeSpan.FromSeconds(1),
+                });
+
                 //Build plugin config
-                PluginLoadConfiguration conf = new()
+                PluginLoadConfig conf = new()
                 {
                     PluginErrorLog = logger.AppLog,
                     HostConfig = config.RootElement,
-                    //Hot reload is disabled by default
-                    HotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean(),
 
                     PluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins",
 
-                    //Wait 1 second
-                    ReloadDelay = TimeSpan.FromSeconds(1)
+                    AssemblyLoaderFactory = asmFactory
                 };
 
+                const string PLUGIN_DATA_TEMPLATE =
+@"
+----------------------------------
+ |      Plugin configuration:
+ | Enabled: {enabled}
+ | Directory: {dir}
+ | Hot Reload: {hr}
+ | Reload Delay: {delay}
+----------------------------------";
+
+                logger.AppLog.Information(
+                    PLUGIN_DATA_TEMPLATE,
+                    true,
+                    conf.PluginDir,
+                    hotReload,
+                    "1s"
+                );
+
                 //Wait for plugins to load
-                return builder.BuildAsync(conf, logger.AppLog).GetAwaiter().GetResult();
+                return builder.Build(conf, logger.AppLog);
             }
 
             //Load without plugins
@@ -297,8 +327,8 @@ Starting...
 @"
 --------------------------------------------------
  |           Found virtual host:
- | hostnames: {hn}
- | directory: {dir}
+ | Hostnames: {hn}
+ | Directory: {dir}
  | Listening on: {ep}
  | SSL: {ssl}, Client Cert Required: {cc}
  | Whitelist entries: {wl}
@@ -383,7 +413,7 @@ Starting...
             }
             return false;
         }
-       
+
         /// <summary>
         /// Loads the static <see cref="HttpConfig"/> object
         /// from the application config
@@ -434,7 +464,7 @@ Starting...
                 logger.AppLog.Error(ex, "Check your HTTP configuration object");
             }
             return null;
-        }      
+        }
 
         private static ITransportProvider GetTransportForServiceGroup(ServiceGroup group, ILogProvider sysLog, ProcessArguments args)
         {
@@ -483,7 +513,7 @@ Starting...
                 //Init buffer pool
                 BufferPool = PoolManager.GetPool<byte>()
             };
-            
+
             //Init new tcp server
             return new TcpTransportProvider(tcpConf);
         }
@@ -582,7 +612,7 @@ Starting...
 
                             //Get heap stats
                             HeapStatistics hs = MemoryUtil.GetSharedHeapStats();
-                           
+
                             const string HEAPSTATS = @"
     Umanaged Heap Stats
 ---------------------------
@@ -615,7 +645,7 @@ Starting...
                 }
             }
         }
- 
+
         private static void InitAppDomainListener(ProcessArguments args, ILogProvider log)
         {
             AppDomain currentDomain = AppDomain.CurrentDomain;
@@ -627,7 +657,7 @@ Starting...
             if (args.DoubleVerbose)
             {
                 log.Verbose("Double verbose mode enabled, registering app-domain listeners");
-                    
+
                 currentDomain.FirstChanceException += delegate (object? sender, FirstChanceExceptionEventArgs e)
                 {
                     log.Verbose("Exception occured in app-domain {mess}", e.Exception.Message);

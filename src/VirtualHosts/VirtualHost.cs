@@ -309,7 +309,7 @@ namespace VNLib.WebServer
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }
                 }
-            }            
+            }
 
             //Add response headers from vh config
             for(int i = 0; i < VirtualHostOptions.AdditionalHeaders.Count; i++)

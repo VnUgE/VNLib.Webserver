@@ -273,6 +273,13 @@ Starting...
             else if (config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
             {
                 bool hotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean();
+                
+                //Set the reload delay
+                TimeSpan delay = TimeSpan.FromSeconds(2);
+                if(plCfg.TryGetProperty("reload_delay_sec", out JsonElement reloadDelayEl))
+                {
+                    delay = reloadDelayEl.GetTimeSpan(TimeParseType.Seconds);
+                }
 
                 PluginAssemblyLoaderFactory asmFactory = new((string asmFile) => new (asmFile)
                 {
@@ -281,9 +288,12 @@ Starting...
 
                     IsUnloadable = hotReload,
 
+                    //Load into memory to allow for hot-reload
+                    LoadInMemory = hotReload,
+
                     //Enable file watching
                     WatchForReload = hotReload,
-                    ReloadDelay = TimeSpan.FromSeconds(1),
+                    ReloadDelay = delay
                 });
 
                 //Build plugin config

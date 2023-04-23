@@ -70,7 +70,7 @@
       "whitelist": [ "127.0.0.1" ],
 
       //A list of file extensions to deny access to, if a resource is requested and has one of the following extensions, a 404 is returned
-      "deny_extensions": [ ".ts", ".json", ".htaccess", ".php" ],
+      "deny_extensions": [ ".env", ".htaccess", ".php", ".gitignore" ],
 
       //The default file extensions to append to a resource that does not have a file extension
       "default_files": [ "index.html", "index.htm" ],
@@ -81,7 +81,7 @@
       },      
 
       //Enables cors support for all endpoints and header controls, if false, all endpoints that are send CORS request headers will be forbidden
-      "enable_cors": true,
+      "enable_cors": false,
 
       //Allowed cors authoriy domains
       "cors_allowed_authority": [],
@@ -95,7 +95,7 @@
         //A pem encoded private key, REQUIRED if using a PEM certificate, may be encrypted with a password
         "privkey": "/path/to/private_key.pem",
 
-        //A password for the ssl private key
+        //An optional password for the ssl private key
         "password": "plain-text-password",
         
         //requires that any client connecting to this host present a valid certificate
@@ -122,7 +122,8 @@
   //Defines the directory where plugin's are to be loaded from
   "plugins": {
     //Hot-reload creates collectable assemblies that allow full re-load support in the host application, should only be used for development purposes!
-    "hot_reload": true,
+    "hot_reload": false,
+    "reload_delay_sec": 2,
     "path": "/path/to/plugins_dir"
   },
 

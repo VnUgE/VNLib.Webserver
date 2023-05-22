@@ -102,7 +102,9 @@ namespace VNLib.WebServer
                     //execution timeout
                     ExecutionTimeout = ExecTimeout,
 
-                    FailureFiles = GetFailureFiles()
+                    FailureFiles = GetFailureFiles(),
+
+                    BrowserOnlyFileRead = _rootConfig.TryGetValue(SERVER_BROWSER_ONLY_PROP_NAME, out JsonElement bOnlyEl) && bOnlyEl.GetBoolean()
                 };
 
                 return vhConfig;

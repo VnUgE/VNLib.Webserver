@@ -13,7 +13,7 @@
     //Compression level to use when compressing response messages
     "compression_level": 0,
     //The size of the buffer to use when parsing multipart/form data uploads
-    "multipart_max_buffer": 20480,
+    "multipart_max_buf_size": 20480,
     //The maxium ammount of data (in bytes) allows for mulitpart/form data file uploads
     "multipart_max_size": 80240,
     //Absolute maximum size (in bytes) of the request entity body (exludes headers)
@@ -63,7 +63,7 @@
       //"hostnames": [ ],
 
       //Collection of "trusted" servers to allow proxy header support from
-      "downstream_servers": [ ],
+      "downstream_servers": [],
 
       //Specify a list of ip addresses that are allowed to connect to the server, 403 will be returned if connections are not on this list
       //whitelist works behind a trusted downstream server that supports X-Forwared-For headers
@@ -75,10 +75,13 @@
       //The default file extensions to append to a resource that does not have a file extension
       "default_files": [ "index.html", "index.htm" ],
 
+      //Denys files to non-browser user-agent connections
+      "browser_only_files": false,
+
       //Key-value headers object, some headers are special and are controlled by the vh processor
       "headers": {
 
-      },      
+      },
 
       //Enables cors support for all endpoints and header controls, if false, all endpoints that are send CORS request headers will be forbidden
       "enable_cors": false,
@@ -97,7 +100,7 @@
 
         //An optional password for the ssl private key
         "password": "plain-text-password",
-        
+
         //requires that any client connecting to this host present a valid certificate
         "client_cert_required": false
       },

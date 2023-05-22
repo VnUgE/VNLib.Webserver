@@ -62,6 +62,7 @@ using VNLib.WebServer.RuntimeLoading;
 * --no-plugins disables plugin loading
 * -t --threads specify the number of accept threads
 * --use-os-ciphers disables hard-coded cipher suite and lets the OS decide the ciphersuite for ssl connections
+* --input-off disables listening on stdin for commands
 */
 
 
@@ -88,11 +89,20 @@ Starting...
             TcpKeepalive = false,
             TcpKeepAliveTime = 4,
             CacheQuota = 0,
-            //Allow 100k per connection to be pre-loaded
+            //Max 640k per connection to be pre-loaded
             MaxRecvBufferData = 10 * 64 * 1024,
             BackLog = 1000
         };
 
+        /*
+         * Chunked encoding is only used when compression is enabled
+         * and the output block size is fixed, usually some multiple 
+         * of 8k. So this value should be the expected size of the 
+         * block to trigger a write to the transport. 
+         * 
+         * This value should be larger than the expected block size,
+         * otherwise this may cause excessive double buffer overhead.
+         */
         private const int CHUNCKED_ACC_BUFFER_SIZE = 64 * 1024;
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
@@ -119,6 +129,7 @@ Starting...
         private const string SERVER_CORS_AUTHORITY_PROP_NAME = "cors_allowed_authority";
         private const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
         private const string SERVER_HEADERS_PROP_NAME = "headers";
+        private const string SERVER_BROWSER_ONLY_PROP_NAME = "browser_only_files";
 
         private const string HTTP_CONF_PROP_NAME = "http";
 
@@ -190,17 +201,36 @@ Starting...
 
             using ManualResetEventSlim ShutdownEvent = new(false);
 
-            //Start listening for commands on a background thread, so it does not interfere with async tasks on tp threads
-            Thread consoleListener = new(() => StdInListenerDoWork(ShutdownEvent, logger.AppLog, serviceStack))
+            //Register console cancel to cause cleanup
+            Console.CancelKeyPress += (object? sender, ConsoleCancelEventArgs e) =>
             {
-                //Allow the main thread to exit
-                IsBackground = true
+                e.Cancel = true;
+                ShutdownEvent.Set();
             };
 
-            //Start listener thread
-            consoleListener.Start();
 
-            logger.AppLog.Verbose("Main thread waiting for exit signal");
+            //Allow user to disable the console listener
+            if (!procArgs.HasArg("--input-off"))
+            {
+
+                //Start listening for commands on a background thread, so it does not interfere with async tasks on tp threads
+                Thread consoleListener = new(() => StdInListenerDoWork(ShutdownEvent, logger.AppLog, serviceStack))
+                {
+                    //Allow the main thread to exit
+                    IsBackground = true
+                };
+
+
+                //Start listener thread
+                consoleListener.Start();
+            }
+            else
+            {
+                logger.AppLog.Information("Console listener is disabled, press ctrl + c to exit");
+            }
+
+
+            logger.AppLog.Information("Main thread waiting for exit signal, press ctrl + c to exit");
 
             //Wait for process cleanup/exit
             ShutdownEvent.Wait();
@@ -438,26 +468,31 @@ Starting...
                 IReadOnlyDictionary<string, JsonElement> httpEl = config.RootElement.GetProperty(HTTP_CONF_PROP_NAME)
                                                                             .EnumerateObject()
                                                                             .ToDictionary(static k => k.Name, static v => v.Value);
-                HttpConfig conf = new(logger.SysLog)
+                HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool())
                 {
                     RequestDebugLog = args.LogHttp ? logger.AppLog : null,
                     CompressionLevel = (CompressionLevel)httpEl["compression_level"].GetInt32(),
                     CompressionLimit = httpEl["compression_limit"].GetInt32(),
                     CompressionMinimum = httpEl["compression_minimum"].GetInt32(),
-                    DefaultHttpVersion = HttpHelpers.ParseHttpVersion(httpEl["default_version"].GetString()),
-                    FormDataBufferSize = httpEl["multipart_max_buffer"].GetInt32(),
+                    DefaultHttpVersion = HttpHelpers.ParseHttpVersion(httpEl["default_version"].GetString()),                   
                     MaxFormDataUploadSize = httpEl["multipart_max_size"].GetInt32(),
                     MaxUploadSize = httpEl["max_entity_size"].GetInt32(),
-                    ConnectionKeepAlive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),
-                    HeaderBufferSize = httpEl["header_buf_size"].GetInt32(),
+                    ConnectionKeepAlive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),                  
                     ActiveConnectionRecvTimeout = httpEl["recv_timeout_ms"].GetInt32(),
                     SendTimeout = httpEl["send_timeout_ms"].GetInt32(),
                     MaxRequestHeaderCount = httpEl["max_request_header_count"].GetInt32(),
-                    MaxOpenConnections = httpEl["max_connections"].GetInt32(),
-                    ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
-                    ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
-                    DiscardBufferSize = httpEl["request_discard_buf_size"].GetInt32(),
-                    ChunkedResponseAccumulatorSize = CHUNCKED_ACC_BUFFER_SIZE,
+                    MaxOpenConnections = httpEl["max_connections"].GetInt32(),                  
+
+                    //Buffer config update
+                    BufferConfig = new()
+                    {
+                        RequestHeaderBufferSize = httpEl["header_buf_size"].GetInt32(),
+                        ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
+                        FormDataBufferSize = httpEl["multipart_max_buf_size"].GetInt32(),
+                        ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
+                        DiscardBufferSize = httpEl["request_discard_buf_size"].GetInt32(),
+                        ChunkedResponseAccumulatorSize = CHUNCKED_ACC_BUFFER_SIZE,
+                    },
 
                     HttpEncoding = Encoding.ASCII,
                 };
@@ -521,7 +556,7 @@ Starting...
                 MaxRecvBufferData = BaseTcpConfig.MaxRecvBufferData,
                 BackLog = BaseTcpConfig.BackLog,
                 //Init buffer pool
-                BufferPool = PoolManager.GetPool<byte>()
+                BufferPool = PoolManager.GetPool()
             };
 
             //Init new tcp server
@@ -530,12 +565,7 @@ Starting...
 
         private static void StdInListenerDoWork(ManualResetEventSlim shutdownEvent, ILogProvider appLog, HttpServiceStack serviceStack)
         {
-            //Register console cancel to cause cleanup
-            Console.CancelKeyPress += (object? sender, ConsoleCancelEventArgs e) =>
-            {
-                e.Cancel = true;
-                shutdownEvent.Set();
-            };
+            appLog.Verbose("Listening for commands on stdin");
 
             while (!shutdownEvent.IsSet)
             {
@@ -670,7 +700,7 @@ Starting...
 
                 currentDomain.FirstChanceException += delegate (object? sender, FirstChanceExceptionEventArgs e)
                 {
-                    log.Verbose("Exception occured in app-domain {mess}", e.Exception.Message);
+                    log.Verbose(e.Exception, "Exception occured in app-domain ");
                 };
                 currentDomain.AssemblyLoad += delegate (object? sender, AssemblyLoadEventArgs args)
                 {

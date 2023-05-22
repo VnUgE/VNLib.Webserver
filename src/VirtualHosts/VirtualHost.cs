@@ -326,10 +326,10 @@ namespace VNLib.WebServer
         protected override ValueTask<FileProcessArgs> RouteFileAsync(HttpEntity entity)
         {
             //Only process the file if the connection is a browser
-            if (!entity.Server.IsBrowser() || entity.Server.Method != HttpMethod.GET)
+            if ((VirtualHostOptions.BrowserOnlyFileRead && !entity.Server.IsBrowser()) 
+                || entity.Server.Method != HttpMethod.GET)
             {
-                entity.CloseResponse(HttpStatusCode.Forbidden);
-                return ValueTask.FromResult(FileProcessArgs.VirtualSkip);
+                return ValueTask.FromResult(FileProcessArgs.Deny);
             }
             return base.RouteFileAsync(entity);
         }

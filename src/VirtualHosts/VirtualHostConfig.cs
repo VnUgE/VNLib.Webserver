@@ -91,6 +91,12 @@ namespace VNLib.WebServer
         public bool ClientCertRequired { get; init; }
 
         /// <summary>
+        /// Flag that only allows files to be read if the connection is considered 
+        /// to be from a browser
+        /// </summary>
+        public bool BrowserOnlyFileRead { get; init; }
+
+        /// <summary>
         /// The IP endpoint of the server that should serve this root
         /// </summary>
         public IPEndPoint TransportEndpoint { get; init; } = new(IPAddress.Any, 80);

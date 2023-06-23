@@ -290,11 +290,13 @@ namespace VNLib.WebServer
                      * When sessions are created for connections that come from a different 
                      * origin, their origin is stored for later. 
                      * 
-                     * Check that the origin's match the current origin, it may be false if 
-                     * the current origin is null, so if the origin is set and the origins dont 
-                     * match, deny the request
+                     * If the session was created from a different origin or the current connection
+                     * is cross origin, then the origin must match the stored origin.
                      */
-                    if(!entity.Session.CrossOriginMatch && entity.Server.Origin != null)
+
+                    if ((entity.Server.CrossOrigin || entity.Session.CrossOrigin)
+                        && !entity.Session.CrossOriginMatch 
+                        && entity.Server.Origin != null)
                     {
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }

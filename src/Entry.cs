@@ -63,6 +63,8 @@ using VNLib.WebServer.RuntimeLoading;
 * -t --threads specify the number of accept threads
 * --use-os-ciphers disables hard-coded cipher suite and lets the OS decide the ciphersuite for ssl connections
 * --input-off disables listening on stdin for commands
+* --inline-scheduler uses the inline scheduler for the pipeline
+* --dump-config dumps the JSON config to the console
 */
 
 
@@ -144,6 +146,13 @@ Starting...
         {
             ProcessArguments procArgs = new(args);
 
+            //Print the help menu
+            if(args.Length == 0 || procArgs.HasArg("-h") || procArgs.HasArg("--help"))
+            {
+                PrintHelpMenu();
+                return 0;
+            }
+
             //Set the RPMalloc env var for the process
             if (procArgs.RpMalloc)
             {
@@ -170,6 +179,12 @@ Starting...
 
             //Create the logger
             using ServerLogger logger = logBuilder.GetLogger();
+
+            //Dump config to console
+            if (procArgs.HasArg("--dump-config"))
+            {
+                DumpConfig(config, logger);
+            }
 
             //Setup the app-domain listener
             InitAppDomainListener(procArgs, logger.AppLog);
@@ -199,7 +214,7 @@ Starting...
             //Start servers
             serviceStack.StartServers();
 
-            using ManualResetEventSlim ShutdownEvent = new(false);
+            using ManualResetEvent ShutdownEvent = new(false);
 
             //Register console cancel to cause cleanup
             Console.CancelKeyPress += (object? sender, ConsoleCancelEventArgs e) =>
@@ -224,16 +239,12 @@ Starting...
                 //Start listener thread
                 consoleListener.Start();
             }
-            else
-            {
-                logger.AppLog.Information("Console listener is disabled, press ctrl + c to exit");
-            }
 
 
             logger.AppLog.Information("Main thread waiting for exit signal, press ctrl + c to exit");
 
             //Wait for process cleanup/exit
-            ShutdownEvent.Wait();
+            ShutdownEvent.WaitOne();
 
             logger.AppLog.Information("Stopping service stack");
 
@@ -245,7 +256,46 @@ Starting...
             return 0;
         }
 
+        static void PrintHelpMenu()
+        {
+            const string TEMPLATE =
+@"
+    VNLib.Webserver Copyright (C) 2023 Vaughn Nugent
+
+    A high-performance, cross-platform, single process, webserver built on the .NET 6.0 Core runtime.
+
+    Option flags:
+        --config         <path>     - Specifies the path to the configuration file (relative or absolute)
+        --input-off                 - Disables the STDIN listener, no runtime commands will be processed
+        --rpmalloc                  - Force loads the rpmalloc dll for the platform from safe directories
+        --inline-scheduler          - Enables inline scheduling for TCP transport IO processing
+        --use-os-ciphers            - Overrides pre-configured TLS ciphers with OS provided ciphers
+        --no-plugins                - Disables loading of dynamic plugins
+        --log-http                  - Enables logging of HTTP request and response headers to the system logger
+        --dump-config               - Dumps the JSON configuration to the console during loading
+        -h, --help                  - Prints this help menu
+        -t, --threads    <num>      - Specifies the number of socket accept threads. Defaults to processor count
+        -s, --silent                - Disables all console logging
+        -v, --verbose               - Enables verbose logging
+        -d, --debug                 - Enables debug logging for the process and all plugins
+        -vv                         - Enables very verbose logging (attaches listeners for app-domain events and logs them to the output)
+
+    Your configuration file must be a JSON encoded file and be readable to the process. You may consider keeping it in a safe location
+outside the application and only readable to this process.
+
+    You should disable hot-reload for production environments, for security and performance reasons.
+
+    You may consider using the --input-off flag to disable STDIN listening for production environments for security reasons.
+
+    Usage:
+        VNLib.Webserver --config <path> ... (other options)     #Starts the server from the configuration (basic usage)
+
+";
+            Console.WriteLine(TEMPLATE);
+        }
+
         #region config
+
         /// <summary>
         /// Initializes the configuration DOM from the specified cmd args 
         /// or the default configuration path
@@ -275,6 +325,19 @@ Starting...
             return JsonDocument.Parse(fs, jdo);
         }
 
+        private static void DumpConfig(JsonDocument doc, ServerLogger logger)
+        {            
+            //Dump the config to the console
+            using VnMemoryStream ms = new();
+            using (Utf8JsonWriter writer = new(ms, new JsonWriterOptions() { Indented = true }))
+            {
+                doc.WriteTo(writer);
+            }
+
+            string json = Encoding.UTF8.GetString(ms.AsSpan());
+            logger.AppLog.Information("Dumping configuration to console...\n{c}", json);
+        }
+
         #endregion
 
         private static HttpServiceStack? BuildStack(ServerLogger logger, ProcessArguments args, HttpConfig httpConfig, JsonDocument config)
@@ -289,24 +352,31 @@ Starting...
             }
 
             //Init service stack
-            HttpServiceStackBuilder builder = new();
-
-            builder.WithDomainBuilder(collection => LoadRoots(config, logger.AppLog, collection))
-                .WithHttp(BuildServer);
+            HttpServiceStack stack = new HttpServiceStackBuilder()
+                                    .WithDomainBuilder(collection => LoadRoots(config, logger.AppLog, collection))
+                                    .WithHttp(BuildServer)
+                                    .Build();
 
             //do not load plugins if disabled
             if (args.HasArg("--no-plugins"))
             {
-                logger.AppLog.Information("Plugin loading disabled via command line flag");
+                logger.AppLog.Information("Plugin loading disabled via options flag");
+                return stack;
             }
-            //Only load plugins if the plugins property is defined
-            else if (config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
+
+            if (!config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
+            {
+                logger.AppLog.Debug("No plugin configuration found");
+                return stack;
+            }
+
+            try
             {
                 bool hotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean();
-                
+
                 //Set the reload delay
                 TimeSpan delay = TimeSpan.FromSeconds(2);
-                if(plCfg.TryGetProperty("reload_delay_sec", out JsonElement reloadDelayEl))
+                if (plCfg.TryGetProperty("reload_delay_sec", out JsonElement reloadDelayEl))
                 {
                     delay = reloadDelayEl.GetTimeSpan(TimeParseType.Seconds);
                 }
@@ -344,7 +414,7 @@ Starting...
  | Enabled: {enabled}
  | Directory: {dir}
  | Hot Reload: {hr}
- | Reload Delay: {delay}
+ | Reload Delay: {delay}s
 ----------------------------------";
 
                 logger.AppLog.Information(
@@ -352,15 +422,21 @@ Starting...
                     true,
                     conf.PluginDir,
                     hotReload,
-                    "1s"
+                    delay.TotalSeconds
                 );
 
                 //Wait for plugins to load
-                return builder.Build(conf, logger.AppLog);
+                stack.PluginManager.LoadPlugins(conf, logger.AppLog);
+
+            }
+            catch
+            {
+                //Dispose the stack
+                stack.Dispose();
+                throw;
             }
 
-            //Load without plugins
-            return builder.Build();
+            return stack;
         }
 
         private const string FOUND_VH_TEMPLATE =
@@ -376,8 +452,6 @@ Starting...
  | Cors Enabled: {enlb}
  | Allowed Cors Sites: {cors}
 --------------------------------------------------";
-
-        record class HostAndRoot(string HostName, string RootPath) {}
 
         /// <summary>
         /// Loads all server roots from the configuration file
@@ -528,6 +602,9 @@ Starting...
                 sslAuthOptions = new ServerSslOptions(group.Hosts, args.HasArg("--use-os-ciphers"));
             }
 
+            //Check cli args for inline scheduler
+            bool inlineScheduler = args.HasArg("--inline-scheduler");
+
             //Check cli args thread count
             string? procCount = args.GetArg("-t") ?? args.GetArg("--threads");
 
@@ -544,9 +621,6 @@ Starting...
                 //Service endpoint to listen on
                 LocalEndPoint = group.ServiceEndpoint,
                 Log = sysLog,
-                
-                //Optional ssl options
-                AuthenticationOptions = sslAuthOptions,
 
                 //Copy from base config
                 TcpKeepAliveTime = BaseTcpConfig.TcpKeepAliveTime,
@@ -555,19 +629,22 @@ Starting...
                 CacheQuota = BaseTcpConfig.CacheQuota,
                 MaxRecvBufferData = BaseTcpConfig.MaxRecvBufferData,
                 BackLog = BaseTcpConfig.BackLog,
+
                 //Init buffer pool
                 BufferPool = PoolManager.GetPool()
             };
 
-            //Init new tcp server
-            return new TcpTransportProvider(tcpConf);
+            //Init new tcp server with/without ssl
+            return sslAuthOptions != null ? 
+                TcpTransport.CreateServer(in tcpConf, sslAuthOptions, inlineScheduler) 
+                : TcpTransport.CreateServer(in tcpConf, inlineScheduler);
         }
 
-        private static void StdInListenerDoWork(ManualResetEventSlim shutdownEvent, ILogProvider appLog, HttpServiceStack serviceStack)
+        private static void StdInListenerDoWork(ManualResetEvent shutdownEvent, ILogProvider appLog, HttpServiceStack serviceStack)
         {
-            appLog.Verbose("Listening for commands on stdin");
+            appLog.Information("Listening for commands on stdin");
 
-            while (!shutdownEvent.IsSet)
+            while (shutdownEvent.WaitOne(0) == false)
             {
                 string[]? s = Console.ReadLine()?.Split(' ');
                 if (s == null)
@@ -654,7 +731,7 @@ Starting...
                             HeapStatistics hs = MemoryUtil.GetSharedHeapStats();
 
                             const string HEAPSTATS = @"
-    Umanaged Heap Stats
+    Unmanaged Heap Stats
 ---------------------------
  userHeap? {rp}
  Allocated bytes:   {ab}

@@ -1,0 +1,80 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  INT_DIR: '{{.SCRATCH_DIR}}/obj/{{.MODULE_NAME}}/'
+  TARGET: '{{.USER_WORKING_DIR}}/bin'  
+  RELEASE_DIR: "./bin/release/{{.TARGET_FRAMEWORK}}"
+
+tasks:
+  
+  #when build succeeds, archive the output into a tgz 
+  postbuild_success:
+    dir: '{{.USER_WORKING_DIR}}'
+
+    cmds:
+
+      #pack up source code and put in output
+     - powershell -Command "Get-ChildItem -Include *.cs,*.csproj -Recurse | Where { \$_.FullName -notlike '*\obj\*' } | Resolve-Path -Relative | tar --files-from - -czf '{{.TARGET}}/src.tgz'"
+
+     #run post in debug mode
+     - task: postbuild
+       vars: 
+         BUILD_MODE: debug 
+         TARGET_OS: linux-x64
+
+     - task: postbuild
+       vars: 
+         BUILD_MODE: debug 
+         TARGET_OS: win-x64
+    
+     - task: postbuild
+       vars: 
+         BUILD_MODE: debug 
+         TARGET_OS: osx-x64
+   
+
+     #remove uncessary files from the release dir
+     - powershell -Command "Get-ChildItem -Recurse '{{.RELEASE_DIR}}/' -Include *.pdb,*.xml | Remove-Item"
+
+     #run post in release mode
+     - task: postbuild
+       vars: 
+         BUILD_MODE: release 
+         TARGET_OS: linux-x64
+
+     - task: postbuild
+       vars: 
+         BUILD_MODE: release 
+         TARGET_OS: win-x64
+    
+     - task: postbuild
+       vars: 
+         BUILD_MODE: release 
+         TARGET_OS: osx-x64
+
+
+  postbuild:
+    dir: '{{.USER_WORKING_DIR}}'
+    vars:
+      BUILD_DIR: "{{.USER_WORKING_DIR}}/bin/{{.BUILD_MODE}}/{{.TARGET_FRAMEWORK}}/{{.TARGET_OS}}/publish"
+    internal: true
+    cmds:
+     
+     #copy license and readme to target
+     - cd .. && powershell -Command "Copy-Item -Path ./LICENSE.txt -Destination '{{.BUILD_DIR}}/license.txt'"
+     - cd .. && powershell -Command "Copy-Item -Path ./build.readme.md -Destination '{{.BUILD_DIR}}/readme.md'"
+
+     #tar outputs
+     - cd "{{.BUILD_DIR}}" && tar -czf "{{.TARGET}}/{{.TARGET_OS}}-{{.BUILD_MODE}}.tgz" .
+
+
+    #Remove the output dirs on clean
+  clean:
+    dir: '{{.USER_WORKING_DIR}}'
+    cmds:
+     - cmd: powershell Remove-Item -Recurse './bin'
+       ignore_error: true
+     - cmd: powershell Remove-Item -Recurse './obj'
+       ignore_error: true

@@ -109,7 +109,7 @@ namespace VNLib.WebServer.TcpMemoryPool
                     IntPtr offset = IntPtr.Add(_pointer, elementIndex);
 
                     //Return handle at offser
-                    return MemoryUtil.GetMemoryHandleFromPointer(offset);
+                    return MemoryUtil.GetMemoryHandleFromPointer(offset, pinnable:this);
                 }
 
                 public override void Unpin()

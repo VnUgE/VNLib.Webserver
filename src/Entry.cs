@@ -30,8 +30,10 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Reflection;
 using System.Net.Security;
-using System.IO.Compression;
+using System.Runtime.Loader;
+
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Runtime.ExceptionServices;
@@ -39,6 +41,7 @@ using System.Runtime.ExceptionServices;
 using VNLib.Utils.IO;
 using VNLib.Utils.Memory;
 using VNLib.Utils.Logging;
+using VNLib.Utils.Resources;
 using VNLib.Utils.Extensions;
 using VNLib.Utils.Memory.Diagnostics;
 using VNLib.Net.Http;
@@ -47,6 +50,7 @@ using VNLib.Plugins.Essentials.ServiceStack;
 
 using VNLib.WebServer.Plugins;
 using VNLib.WebServer.Transport;
+using VNLib.WebServer.Compression;
 using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
 
@@ -65,6 +69,7 @@ using VNLib.WebServer.RuntimeLoading;
 * --input-off disables listening on stdin for commands
 * --inline-scheduler uses the inline scheduler for the pipeline
 * --dump-config dumps the JSON config to the console
+* --compression-off disables dynamic response compressor
 */
 
 
@@ -132,10 +137,11 @@ Starting...
         private const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
         private const string SERVER_HEADERS_PROP_NAME = "headers";
         private const string SERVER_BROWSER_ONLY_PROP_NAME = "browser_only_files";
+        private const string SERVER_WHITELIST_PROP_NAME = "whitelist";
 
         private const string HTTP_CONF_PROP_NAME = "http";
-
-        private const string SERVER_WHITELIST_PROP_NAME = "whitelist";
+        
+        private const string HTTP_COMPRESSION_PROP_NAME = "compression_lib";
 
         private const string LOAD_DEFAULT_HOSTNAME_VALUE = "[system]";
 
@@ -267,12 +273,13 @@ Starting...
     Option flags:
         --config         <path>     - Specifies the path to the configuration file (relative or absolute)
         --input-off                 - Disables the STDIN listener, no runtime commands will be processed
-        --rpmalloc                  - Force loads the rpmalloc dll for the platform from safe directories
+        --rpmalloc                  - Force loads the rpmalloc allocator dll for the platform from safe directories
         --inline-scheduler          - Enables inline scheduling for TCP transport IO processing
         --use-os-ciphers            - Overrides pre-configured TLS ciphers with OS provided ciphers
         --no-plugins                - Disables loading of dynamic plugins
         --log-http                  - Enables logging of HTTP request and response headers to the system logger
         --dump-config               - Dumps the JSON configuration to the console during loading
+        --compression-off           - Disables dynamic response compression
         -h, --help                  - Prints this help menu
         -t, --threads    <num>      - Specifies the number of socket accept threads. Defaults to processor count
         -s, --silent                - Disables all console logging
@@ -281,7 +288,7 @@ Starting...
         -vv                         - Enables very verbose logging (attaches listeners for app-domain events and logs them to the output)
 
     Your configuration file must be a JSON encoded file and be readable to the process. You may consider keeping it in a safe location
-outside the application and only readable to this process.
+    outside the application and only readable to this process.
 
     You should disable hot-reload for production environments, for security and performance reasons.
 
@@ -542,16 +549,16 @@ outside the application and only readable to this process.
                 IReadOnlyDictionary<string, JsonElement> httpEl = config.RootElement.GetProperty(HTTP_CONF_PROP_NAME)
                                                                             .EnumerateObject()
                                                                             .ToDictionary(static k => k.Name, static v => v.Value);
+
                 HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool())
                 {
                     RequestDebugLog = args.LogHttp ? logger.AppLog : null,
-                    CompressionLevel = (CompressionLevel)httpEl["compression_level"].GetInt32(),
                     CompressionLimit = httpEl["compression_limit"].GetInt32(),
                     CompressionMinimum = httpEl["compression_minimum"].GetInt32(),
-                    DefaultHttpVersion = HttpHelpers.ParseHttpVersion(httpEl["default_version"].GetString()),                   
+                    DefaultHttpVersion = HttpHelpers.ParseHttpVersion(httpEl["default_version"].GetString()),
                     MaxFormDataUploadSize = httpEl["multipart_max_size"].GetInt32(),
                     MaxUploadSize = httpEl["max_entity_size"].GetInt32(),
-                    ConnectionKeepAlive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),                  
+                    ConnectionKeepAlive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),
                     ActiveConnectionRecvTimeout = httpEl["recv_timeout_ms"].GetInt32(),
                     SendTimeout = httpEl["send_timeout_ms"].GetInt32(),
                     MaxRequestHeaderCount = httpEl["max_request_header_count"].GetInt32(),
@@ -564,14 +571,16 @@ outside the application and only readable to this process.
                         ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
                         FormDataBufferSize = httpEl["multipart_max_buf_size"].GetInt32(),
                         ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
-                        DiscardBufferSize = httpEl["request_discard_buf_size"].GetInt32(),
                         ChunkedResponseAccumulatorSize = CHUNCKED_ACC_BUFFER_SIZE,
                     },
 
                     HttpEncoding = Encoding.ASCII,
+
+                    //Init compressor
+                    CompressorManager = LoadOrDefaultCompressor(args, config, logger)
                 };
                 return conf.DefaultHttpVersion == Net.Http.HttpVersion.None
-                    ? throw new ArgumentException("Your default HTTP version is invalid, specify an RFC formatted http version 'HTTP/x.x'", "default_version")
+                    ? throw new ServerConfigurationException("Your default HTTP version is invalid, specify an RFC formatted http version 'HTTP/x.x'")
                     : conf;
             }
             catch (KeyNotFoundException kne)
@@ -583,6 +592,86 @@ outside the application and only readable to this process.
                 logger.AppLog.Error(ex, "Check your HTTP configuration object");
             }
             return null;
+        }
+
+        private delegate void OnHttpLibLoad(ILogProvider log, JsonElement? configData);
+
+        private static IHttpCompressorManager? LoadOrDefaultCompressor(ProcessArguments args, JsonDocument config, ServerLogger logger)
+        {
+            const string EXTERN_LIB_LOAD_METHOD_NAME = "OnLoad";
+
+            if (args.HasArg("--compression-off"))
+            {
+                logger.AppLog.Debug("Compression disabled by cli args");
+                return null;
+            }
+
+            //Try to get the compressor assembly file from config
+            if (!config.RootElement.TryGetProperty(HTTP_COMPRESSION_PROP_NAME, out JsonElement compAsmEl))
+            {
+                logger.AppLog.Debug("Falling back to default http compressor");
+                return new FallbackCompressionManager();
+            }
+
+            //Try to get the compressor assembly file from config
+            string? compAsmPath = compAsmEl.GetString();
+
+            if (string.IsNullOrWhiteSpace(compAsmPath))
+            {
+                logger.AppLog.Debug("Falling back to default http compressor");
+                return new FallbackCompressionManager();
+            }
+
+            //Make sure the file exists
+            if (!FileOperations.FileExists(compAsmPath))
+            {
+                logger.AppLog.Warn("The specified http compressor assembly file does not exist, falling back to default http compressor");
+                return new FallbackCompressionManager();
+            }
+
+            //Try to load the assembly into our alc, we dont need to worry about unloading
+            ManagedLibrary lib = ManagedLibrary.LoadManagedAssembly(compAsmPath, AssemblyLoadContext.Default);
+
+            logger.AppLog.Debug("Loading user defined compressor assembly\n{asm}", lib.AssemblyPath);
+
+            try
+            {
+                //Load the compressor manager type from the assembly
+                IHttpCompressorManager instance = lib.LoadTypeFromAssembly<IHttpCompressorManager>();
+
+                /*
+                 * We can provide some optional library initialization functions if the library 
+                 * supports it. First we can allow the library to write logs to our log provider
+                 * and second we can provide the library with the raw configuration data as a byte array
+                 */
+
+                Type instanceType = instance.GetType();
+
+                MethodInfo? onLoad = instanceType.GetMethod(EXTERN_LIB_LOAD_METHOD_NAME, new Type[] { typeof(ILogProvider), typeof(JsonElement?) });
+
+
+                if (onLoad != null)
+                {
+                    //Invoke the on load method with the logger and config data
+                    onLoad.CreateDelegate<OnHttpLibLoad>(instance).Invoke(logger.AppLog, config.RootElement);
+                }
+                else
+                {
+                    //Invoke parameterless on load method
+                    onLoad = instanceType.GetMethod(EXTERN_LIB_LOAD_METHOD_NAME, BindingFlags.Public);
+
+                    onLoad?.CreateDelegate<Action>(instance).Invoke();
+
+                    //If the library does not support the on load method, we can just ignore it
+                }
+
+                return instance;
+            }
+            //Catch TIE and throw the inner exception for cleaner debug
+            catch(TargetInvocationException te) when (te.InnerException != null)
+            {
+                throw te.InnerException;
+            }
         }
 
         private static ITransportProvider GetTransportForServiceGroup(ServiceGroup group, ILogProvider sysLog, ProcessArguments args)

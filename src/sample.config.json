@@ -10,8 +10,6 @@
     "compression_limit": 512000,
     //Minium response size (in bytes) to compress
     "compression_minimum": 2048,
-    //Compression level to use when compressing response messages
-    "compression_level": 0,
     //The size of the buffer to use when parsing multipart/form data uploads
     "multipart_max_buf_size": 20480,
     //The maxium ammount of data (in bytes) allows for mulitpart/form data file uploads
@@ -33,13 +31,11 @@
     //Time in ms to wait for the client to accept transport data before terminating the connection
     "send_timeout_ms": 60000,
     //The size (in bytes) of the buffer used to store all response header data
-    "response_header_buf_size": 16384,
-    /*
-      The size of the buffer to use when a request entity body was not processed by application
-    code and must be discarded before moving on to the next request in the connection pipe
-    */
-    "request_discard_buf_size": 65535
+    "response_header_buf_size": 16384
   },
+  
+  //Path to managed compressor library
+  "compression_lib": null,
 
   //Maxium ammount of time a request is allowed to be processed (includes loading or waiting for sessions) before operations will be cancelled and a 503 returned
   "max_execution_time_ms": 20000,

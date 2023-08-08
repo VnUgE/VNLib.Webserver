@@ -14,8 +14,11 @@ tasks:
     dir: '{{.USER_WORKING_DIR}}'
     cmds:
      #force remove any local changes and overwite
-     - git remote update && git reset --hard
+     - git remote update 
+     - git reset --hard
      - git pull {{.REMOTE}} --verify-signatures 
+     #re-write semver after hard reset
+     - dotnet-gitversion.exe /updateprojectfiles
 
 #called by build pipeline to build module
   build:
@@ -23,8 +26,7 @@ tasks:
     cmds:
      - echo "building module {{.MODULE_NAME}}"
     
-     #re-write semver after hard reset
-     - dotnet-gitversion.exe /updateprojectfiles
+    
      
      #build debug mode first
      - task: build_debug

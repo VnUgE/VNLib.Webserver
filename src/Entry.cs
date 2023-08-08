@@ -195,7 +195,7 @@ Starting...
             //Setup the app-domain listener
             InitAppDomainListener(procArgs, logger.AppLog);
 
-            //get the http conf
+            //get the http conf for all servers
             HttpConfig? http = GetHttpConfig(config, procArgs, logger);
 
             //If no http config is defined, we cannot continue

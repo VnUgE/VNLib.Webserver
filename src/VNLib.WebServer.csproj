@@ -7,23 +7,20 @@
     <AssemblyName>VNLib.WebServer</AssemblyName>
     <RootNamespace>VNLib.WebServer</RootNamespace>
     <AnalysisLevel>latest-all</AnalysisLevel>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <RetainVMGarbageCollection>true</RetainVMGarbageCollection>
+    <StartupObject>VNLib.WebServer.Entry</StartupObject>
   </PropertyGroup>
 
   <PropertyGroup>
     <Authors>Vaughn Nugent</Authors>
     <Company>Vaughn Nugent</Company>
-    <Description>A complete .NET 6 Web server using VNLib.HTTP</Description>
+    <Description>A high performance, reference .NET 6 web/http server using VNLib.Core, with the VNLib.Plugins.Essentials web framework</Description>
     <Copyright>Copyright © 2023 Vaughn Nugent</Copyright>
     <Product>VNLib.Webserver</Product>
     <PackageProjectUrl>https://www.vaughnnugent.com/resources/software/modules/VNLib.Webserver</PackageProjectUrl>
     <RepositoryUrl>https://github.com/VnUgE/VNLib.Webserver/</RepositoryUrl>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <ServerGarbageCollection>true</ServerGarbageCollection>
-    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
-    <RetainVMGarbageCollection>true</RetainVMGarbageCollection>
-    <StartupObject>VNLib.WebServer.Entry</StartupObject>    
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

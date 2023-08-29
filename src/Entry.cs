@@ -33,7 +33,6 @@ using System.Threading;
 using System.Reflection;
 using System.Net.Security;
 using System.Runtime.Loader;
-
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Runtime.ExceptionServices;
@@ -268,7 +267,7 @@ Starting...
 @"
     VNLib.Webserver Copyright (C) 2023 Vaughn Nugent
 
-    A high-performance, cross-platform, single process, webserver built on the .NET 6.0 Core runtime.
+    A high-performance, cross-platform, single process, reference webserver built on the .NET 6.0 Core runtime.
 
     Option flags:
         --config         <path>     - Specifies the path to the configuration file (relative or absolute)
@@ -688,7 +687,7 @@ Starting...
                 }
 
                 //Build the server auth options for this transport provider
-                sslAuthOptions = new ServerSslOptions(group.Hosts, args.HasArg("--use-os-ciphers"));
+                sslAuthOptions = new HostAwareServerSslOptions(group.Hosts, args.HasArg("--use-os-ciphers"));
             }
 
             //Check cli args for inline scheduler

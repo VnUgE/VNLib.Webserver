@@ -34,7 +34,7 @@ using VNLib.Plugins.Essentials.ServiceStack;
 
 namespace VNLib.WebServer
 {
-    internal sealed class ServerSslOptions : SslServerAuthenticationOptions
+    internal sealed class HostAwareServerSslOptions : SslServerAuthenticationOptions
     {
         //TODO programatically setup ssl protocols, but for now we only use HTTP/1.1 so this can be hard-coded
         internal static readonly List<SslApplicationProtocol> SslAppProtocols = new()
@@ -49,7 +49,7 @@ namespace VNLib.WebServer
 
         public readonly bool ClientCertRequired;
 
-        public ServerSslOptions(IReadOnlyCollection<IServiceHost> hosts, bool doNotForceTlsProtocols)
+        public HostAwareServerSslOptions(IReadOnlyCollection<IServiceHost> hosts, bool doNotForceTlsProtocols)
         {
             //Set validation callback
             RemoteCertificateValidationCallback = OnRemoteCertVerification;
@@ -84,9 +84,6 @@ namespace VNLib.WebServer
 
         private bool OnRemoteCertVerification(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
         {
-            //Recover the ssl stream from the sender to get connection information
-            SslStream stream = (SslStream)sender;
-
             /*
              * The ssl stream provides the hostname for the current context, we can use it to get the 
              * host configuration by it's hostname
@@ -96,7 +93,8 @@ namespace VNLib.WebServer
              * The default is not requiring a certificate
              */
             if (
-                _configByHost.TryGetValue(stream.TargetHostName, out VirtualHostConfig? conf) || 
+                sender is SslStream ssl &&
+                _configByHost.TryGetValue(ssl.TargetHostName, out VirtualHostConfig? conf) || 
                 _configByHost.TryGetValue("*", out conf)
                 )
             {

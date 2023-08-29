@@ -32,26 +32,39 @@ namespace VNLib.WebServer
     internal static class ServiceExtensions
     {       
 
-        public static object? TryRegsiterForService(this IManagedPlugin plugin, Type serviceType, Action<object?> onUnload, object? state)
+        public static object? TryRegsiterForService<T>(this IManagedPlugin plugin, Type serviceType, Action<T?> onUnload, T? state)
         {
             //Try to get the desired service
             object? service = plugin.Services.GetService(serviceType);
 
             if (service != null)
             {
-                _ = new Registration(plugin, onUnload, state);
+                _ = new Registration<T>(plugin, onUnload, state);
             }
 
             return service;
         }
 
-        private sealed class Registration
+        public static object? TryRegsiterForService<T>(this IManagedPlugin plugin, Type serviceType, Action<T?, object> onUnload, T? state)
+        {
+            //Try to get the desired service
+            object? service = plugin.Services.GetService(serviceType);
+
+            if (service != null)
+            {
+                _ = new Registration<T>(plugin, (s) => onUnload(s, service), state);
+            }
+
+            return service;
+        }
+
+        private class Registration<T>
         {
             private readonly CancellationTokenRegistration _reg;
-            private readonly Action<object?> _callback;
+            private readonly Action<T?> _callback;
 
 
-            public Registration(IManagedPlugin plugin, Action<object?> callback, object? state)
+            public Registration(IManagedPlugin plugin, Action<T?> callback, T? state)
             {
                 _callback = callback;
 
@@ -60,13 +73,13 @@ namespace VNLib.WebServer
             }
 
 
-            void OnCancelled(object? state)
+            protected void OnCancelled(object? state)
             {
                 //Unregister the token
                 using (_reg)
                 {
                     //Invoke callback
-                    _callback.Invoke(state);
+                    _callback.Invoke((T?)state);
                 }
             }
         }

@@ -22,12 +22,15 @@
 * along with VNLib.WebServer. If not, see http://www.gnu.org/licenses/.
 */
 
+using System;
+
 using VNLib.Net.Http;
 using VNLib.Utils.Logging;
 using VNLib.Plugins;
 using VNLib.Plugins.Essentials.Content;
 using VNLib.Plugins.Essentials.Sessions;
 using VNLib.Plugins.Essentials.Accounts;
+using VNLib.Plugins.Essentials.Middleware;
 using VNLib.Plugins.Essentials.ServiceStack;
 
 namespace VNLib.WebServer
@@ -55,25 +58,24 @@ namespace VNLib.WebServer
             UpdateSessionProvider(plugin);
             UpdatePageRouter(plugin);
             UpdateSecurityProvider(plugin);
+            UpdateMiddleware(plugin);
 
             //Add endpoints to service
-            _host.AddEndpoint(endpoints);
+            _host.EndpointTable.AddEndpoint(endpoints);
         }
 
         void IServiceHost.OnRuntimeServiceDetach(IManagedPlugin plugin, IEndpoint[] endpoints)
         {
             //Remove endpoints
-            _host.RemoveEndpoint(endpoints);
+            _host.EndpointTable.RemoveEndpoint(endpoints);
         }
 
         private void UpdateSessionProvider(IManagedPlugin plugin)
         {
-            static void OnSessionUnload(object? state)
+            static void OnSessionUnload(RuntimeServiceHost? state)
             {
-                RuntimeServiceHost sh = (RuntimeServiceHost)state!;
-
                 //Clear session provider on unload
-                sh._host.SetSessionProvider(null);
+                state?._host.SetSessionProvider(null);
             }
 
             //Try to get the session provider 
@@ -88,12 +90,10 @@ namespace VNLib.WebServer
 
         private void UpdatePageRouter(IManagedPlugin plugin)
         {
-            static void OnRouterUnload(object? state)
+            static void OnRouterUnload(RuntimeServiceHost? state)
             {
-                RuntimeServiceHost sh = (RuntimeServiceHost)state!;
-
                 //Clear session provider on unload
-                sh._host.SetPageRouter(null);
+                state?._host.SetPageRouter(null);
             }
 
             //Try to get the session provider 
@@ -108,12 +108,10 @@ namespace VNLib.WebServer
 
         private void UpdateSecurityProvider(IManagedPlugin plugin)
         {
-            static void OnSecProviderUnload(object? state)
+            static void OnSecProviderUnload(RuntimeServiceHost? state)
             {
-                RuntimeServiceHost sh = (RuntimeServiceHost)state!;
-
                 //Clear session provider on unload
-                sh._host.SetSecurityProvider(null);
+                state?._host.SetSecurityProvider(null);
             }
 
             //Try to get the session provider 
@@ -123,6 +121,26 @@ namespace VNLib.WebServer
             {
                 //Configure session provider
                 _host.SetSecurityProvider((IAccountSecurityProvider)sess);
+            }
+        }
+
+        private void UpdateMiddleware(IManagedPlugin plugin)
+        {
+            static void OnMiddlewareUnloaded(RuntimeServiceHost? state, object service)
+            {
+                IHttpMiddleware[] mwList = (IHttpMiddleware[])service;
+
+                //remove all middleware elements
+                Array.ForEach(mwList, mw => state?._host.MiddlewareChain.RemoveMiddleware(mw));
+            }
+
+            //Try to get the middleware provider
+            IHttpMiddleware[]? mw = (IHttpMiddleware[]?)plugin.TryRegsiterForService(typeof(IHttpMiddleware[]), OnMiddlewareUnloaded, this);
+
+            if (mw != null)
+            {
+                //Add all middleware elements
+                Array.ForEach(mw, m => _host.MiddlewareChain.AddLast(m));
             }
         }
     }

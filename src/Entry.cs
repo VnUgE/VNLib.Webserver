@@ -152,7 +152,7 @@ Starting...
             ProcessArguments procArgs = new(args);
 
             //Print the help menu
-            if(args.Length == 0 || procArgs.HasArg("-h") || procArgs.HasArg("--help"))
+            if(args.Length == 0 || procArgs.HasArgument("-h") || procArgs.HasArgument("--help"))
             {
                 PrintHelpMenu();
                 return 0;
@@ -186,7 +186,7 @@ Starting...
             using ServerLogger logger = logBuilder.GetLogger();
 
             //Dump config to console
-            if (procArgs.HasArg("--dump-config"))
+            if (procArgs.HasArgument("--dump-config"))
             {
                 DumpConfig(config, logger);
             }
@@ -230,7 +230,7 @@ Starting...
 
 
             //Allow user to disable the console listener
-            if (!procArgs.HasArg("--input-off"))
+            if (!procArgs.HasArgument("--input-off"))
             {
 
                 //Start listening for commands on a background thread, so it does not interfere with async tasks on tp threads
@@ -311,7 +311,7 @@ Starting...
         private static JsonDocument? LoadConfig(ProcessArguments args)
         {
             //Get the config path or default config
-            string configPath = args.GetArg("--config") ?? Path.Combine(EXE_DIR.FullName, DEFAULT_CONFIG_PATH);
+            string configPath = args.GetArgument("--config") ?? Path.Combine(EXE_DIR.FullName, DEFAULT_CONFIG_PATH);
 
             if (!FileOperations.FileExists(configPath))
             {
@@ -364,7 +364,7 @@ Starting...
                                     .Build();
 
             //do not load plugins if disabled
-            if (args.HasArg("--no-plugins"))
+            if (args.HasArgument("--no-plugins"))
             {
                 logger.AppLog.Information("Plugin loading disabled via options flag");
                 return stack;
@@ -599,7 +599,7 @@ Starting...
         {
             const string EXTERN_LIB_LOAD_METHOD_NAME = "OnLoad";
 
-            if (args.HasArg("--compression-off"))
+            if (args.HasArgument("--compression-off"))
             {
                 logger.AppLog.Debug("Compression disabled by cli args");
                 return null;
@@ -687,14 +687,14 @@ Starting...
                 }
 
                 //Build the server auth options for this transport provider
-                sslAuthOptions = new HostAwareServerSslOptions(group.Hosts, args.HasArg("--use-os-ciphers"));
+                sslAuthOptions = new HostAwareServerSslOptions(group.Hosts, args.HasArgument("--use-os-ciphers"));
             }
 
             //Check cli args for inline scheduler
-            bool inlineScheduler = args.HasArg("--inline-scheduler");
+            bool inlineScheduler = args.HasArgument("--inline-scheduler");
 
             //Check cli args thread count
-            string? procCount = args.GetArg("-t") ?? args.GetArg("--threads");
+            string? procCount = args.GetArgument("-t") ?? args.GetArgument("--threads");
 
             if(!uint.TryParse(procCount, out uint threadCount))
             {

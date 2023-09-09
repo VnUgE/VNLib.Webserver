@@ -301,12 +301,8 @@ namespace VNLib.WebServer
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }
 
+                    //Try to prevent security downgrade attacks
                     if (!(entity.Session.IPMatch && entity.Session.SecurityProcol <= entity.Server.SecurityProtocol))
-                    {
-                        return ValueTask.FromResult(FileProcessArgs.Deny);
-                    }
-                    //If the session stored a user-agent, make sure it matches the connection
-                    else if (entity.Session.UserAgent != null && !entity.Session.UserAgent.Equals(entity.Server.UserAgent, StringComparison.Ordinal))
                     {
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }

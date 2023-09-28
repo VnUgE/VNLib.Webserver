@@ -45,13 +45,17 @@ using VNLib.Utils.Extensions;
 using VNLib.Utils.Memory.Diagnostics;
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
+using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.ServiceStack;
 
 using VNLib.WebServer.Plugins;
 using VNLib.WebServer.Transport;
 using VNLib.WebServer.Compression;
+using VNLib.WebServer.Middlewares;
 using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
+using VNLib.Plugins.Essentials.ServiceStack.Construction;
+
 
 /*
 * Arguments
@@ -135,7 +139,6 @@ Starting...
         private const string SERVER_CORS_AUTHORITY_PROP_NAME = "cors_allowed_authority";
         private const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
         private const string SERVER_HEADERS_PROP_NAME = "headers";
-        private const string SERVER_BROWSER_ONLY_PROP_NAME = "browser_only_files";
         private const string SERVER_WHITELIST_PROP_NAME = "whitelist";
 
         private const string HTTP_CONF_PROP_NAME = "http";
@@ -162,7 +165,7 @@ Starting...
             if (procArgs.RpMalloc)
             {
                 //Set initial env to use the rpmalloc allocator for the default heaps
-                Environment.SetEnvironmentVariable(MemoryUtil.SHARED_HEAP_FILE_PATH, "rpmalloc.dll", EnvironmentVariableTarget.Process);
+                Environment.SetEnvironmentVariable(MemoryUtil.SHARED_HEAP_FILE_PATH, "vnlib_rpmalloc.dll", EnvironmentVariableTarget.Process);
             }
 
             Console.WriteLine(STARTUP_MESSAGE);
@@ -205,14 +208,28 @@ Starting...
 
             logger.AppLog.Information("Building service stack, populating service domain...");
 
-            //Init service stack
-            using HttpServiceStack? serviceStack = BuildStack(logger, procArgs, http.Value, config);
+            //Init service stack with built-in http
+            HttpServiceStackBuilder stack = new HttpServiceStackBuilder()
+                                    .WithDomain(domain => LoadRoots(config, logger.AppLog, domain))
+                                    .WithBuiltInHttp(sg => GetTransportForServiceGroup(sg, logger.SysLog, procArgs), http.Value);
 
-            if(serviceStack == null)
+
+            //Add plugins to the service stack
+            ConfigurePlugins(stack, logger, procArgs, config);
+
+            //Build the service stack
+            using HttpServiceStack? serviceStack = stack.Build();
+
+            if (serviceStack == null)
             {
                 logger.AppLog.Error("Failed to build service stack, no virtual hosts were defined, exiting");
                 return 0;
             }
+
+            logger.AppLog.Information("Loading plugins...");
+
+            //load plugins
+            serviceStack.LoadPlugins(logger.AppLog);
 
             logger.AppLog.Information("Starting listeners...");
 
@@ -228,7 +245,6 @@ Starting...
                 ShutdownEvent.Set();
             };
 
-
             //Allow user to disable the console listener
             if (!procArgs.HasArgument("--input-off"))
             {
@@ -240,11 +256,9 @@ Starting...
                     IsBackground = true
                 };
 
-
                 //Start listener thread
                 consoleListener.Start();
             }
-
 
             logger.AppLog.Information("Main thread waiting for exit signal, press ctrl + c to exit");
 
@@ -346,74 +360,48 @@ Starting...
 
         #endregion
 
-        private static HttpServiceStack? BuildStack(ServerLogger logger, ProcessArguments args, HttpConfig httpConfig, JsonDocument config)
+        private static void ConfigurePlugins(HttpServiceStackBuilder http, ServerLogger logger, ProcessArguments args, JsonDocument config)
         {
-            IHttpServer BuildServer(ServiceGroup group)
-            {
-                //Get transport
-                ITransportProvider transport = GetTransportForServiceGroup(group, logger.SysLog, args);
-
-                //Build the http server
-                return new HttpServer(httpConfig, transport, group.Hosts.Select(r => r.Processor));
-            }
-
-            //Init service stack
-            HttpServiceStack stack = new HttpServiceStackBuilder()
-                                    .WithDomainBuilder(collection => LoadRoots(config, logger.AppLog, collection))
-                                    .WithHttp(BuildServer)
-                                    .Build();
-
             //do not load plugins if disabled
             if (args.HasArgument("--no-plugins"))
             {
                 logger.AppLog.Information("Plugin loading disabled via options flag");
-                return stack;
+                return;
             }
 
             if (!config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
             {
                 logger.AppLog.Debug("No plugin configuration found");
-                return stack;
+                return;
             }
 
-            try
+            //Check for hot-reload
+            bool hotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean();
+
+            //Set the reload delay
+            TimeSpan delay = TimeSpan.FromSeconds(2);
+            if (plCfg.TryGetProperty("reload_delay_sec", out JsonElement reloadDelayEl))
             {
-                bool hotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean();
+                delay = reloadDelayEl.GetTimeSpan(TimeParseType.Seconds);
+            }
 
-                //Set the reload delay
-                TimeSpan delay = TimeSpan.FromSeconds(2);
-                if (plCfg.TryGetProperty("reload_delay_sec", out JsonElement reloadDelayEl))
-                {
-                    delay = reloadDelayEl.GetTimeSpan(TimeParseType.Seconds);
-                }
+            string pluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins";
 
-                PluginAssemblyLoaderFactory asmFactory = new((string asmFile) => new (asmFile)
-                {
-                    //we need to enable sharing to allow for IPlugin instances to be shared across domains
-                    PreferSharedTypes = true,
+            //Init new plugin stack builder
+            PluginStackBuilder pluginBuilder = PluginStackBuilder.Create()
+                                    .WithDebugLog(logger.AppLog)
+                                    .WithLocalJsonConfig(config.RootElement)
+                                    .WithSearchDirectory(pluginDir)
+                                    .WithLoaderFactory(pc => new PluginAssemblyLoader(pc));
 
-                    IsUnloadable = hotReload,
 
-                    //Load into memory to allow for hot-reload
-                    LoadInMemory = hotReload,
+            //Enable plugin hot-reload
+            if (hotReload)
+            {
+                pluginBuilder.EnableHotReload(delay);
+            }
 
-                    //Enable file watching
-                    WatchForReload = hotReload,
-                    ReloadDelay = delay
-                });
-
-                //Build plugin config
-                PluginLoadConfig conf = new()
-                {
-                    PluginErrorLog = logger.AppLog,
-                    HostConfig = config.RootElement,
-
-                    PluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins",
-
-                    AssemblyLoaderFactory = asmFactory
-                };
-
-                const string PLUGIN_DATA_TEMPLATE =
+            const string PLUGIN_DATA_TEMPLATE =
 @"
 ----------------------------------
  |      Plugin configuration:
@@ -423,26 +411,16 @@ Starting...
  | Reload Delay: {delay}s
 ----------------------------------";
 
-                logger.AppLog.Information(
-                    PLUGIN_DATA_TEMPLATE,
-                    true,
-                    conf.PluginDir,
-                    hotReload,
-                    delay.TotalSeconds
-                );
+            logger.AppLog.Information(
+                PLUGIN_DATA_TEMPLATE,
+                true,
+                pluginDir,
+                hotReload,
+                delay.TotalSeconds
+            );
 
-                //Wait for plugins to load
-                stack.PluginManager.LoadPlugins(conf, logger.AppLog);
-
-            }
-            catch
-            {
-                //Dispose the stack
-                stack.Dispose();
-                throw;
-            }
-
-            return stack;
+            //Add the plugin stack to the http service stack
+            http.WithPluginStack(pluginBuilder.ConfigureStack);
         }
 
         private const string FOUND_VH_TEMPLATE =
@@ -465,16 +443,16 @@ Starting...
         /// <param name="config">The application configuration to load</param>
         /// <param name="log"></param>
         /// <remarks>A value that indicates if roots we loaded correctly, or false if errors occured and could not be loaded</remarks>
-        private static bool LoadRoots(JsonDocument config, ILogProvider log, ICollection<IServiceHost> hosts)
+        private static bool LoadRoots(JsonDocument config, ILogProvider log, IDomainBuilder hosts)
         {
             try
             {
+                //execution timeout
+                TimeSpan execTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds);
+
                 //Enumerate all virtual host configurations
                 foreach (JsonElement rootEl in config.RootElement.GetProperty(HOSTS_CONFIG_PROP_NAME).EnumerateArray())
                 {
-                    //execution timeout
-                    TimeSpan execTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds);
-
                     //Inint config builder
                     VirtualHostConfigBuilder builder = new(rootEl, execTimeout);
 
@@ -485,10 +463,17 @@ Starting...
                     VirtualHostConfig conf = builder.Build();
 
                     //Create directory if it doesnt exist yet
-                    if (!Directory.Exists(conf.FileRoot))
+                    if (!conf.RootDir.Exists)
                     {
-                        Directory.CreateDirectory(conf.FileRoot);
+                        conf.RootDir.Create();
                     }
+
+                    VirtualHostHooks hooks = new(conf);
+
+                    //Init middleware stack
+                    MainServerMiddlware main = new(log, conf);
+                    CORSMiddleware cors = new(log, conf);
+                    SessionSecurityMiddelware sess = new(log);                    
 
                     //Create a new vritual host for every hostname using the same configuration
                     foreach(string hostName in hostNames)
@@ -496,18 +481,38 @@ Starting...
                         //Substitute the dns hostname variable
                         string hn = hostName.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName(), StringComparison.OrdinalIgnoreCase);
 
-                        //Create service host from the configuration and the hostname
-                        RuntimeServiceHost host = new(hn, log, conf);
+                        //Configure new virtual host for each hostname
+                       IVirtualHostBuilder vh = hosts.WithVirtualHost(conf.RootDir, hooks, log)
+                            .WithHostname(hn)
+                            .WithEndpoint(conf.TransportEndpoint)
+                            .WithTlsCertificate(conf.Certificate)
+                            .WithDefaultFiles(conf.DefaultFiles)
+                            .WithExcludedExtensions(conf.ExcludedExtensions)
+                            .WithAllowedAttributes(conf.AllowedAttributes)
+                            .WithDisallowedAttributes(conf.DissallowedAttributes)
+                            .WithDownstreamServers(conf.DownStreamServers)
+                            .WithOption(p => p.ExecutionTimeout = conf.ExecutionTimeout)
 
-                        //Add root to the list
-                        hosts.Add(host);
+                            //Add custom middleware
+                            .WithMiddleware(main, sess);
+
+                        /*
+                         * We only enable cors if the configuration has a value for the allow cors property.
+                         * The user may disable cors totally, deny cors requests, or enable cors with a whitelist
+                         * 
+                         * Only add the middleware if the confg has a value for the allow cors property
+                         */
+                        if (conf.AllowCors != null)
+                        {
+                            vh.WithMiddleware(cors);
+                        }
                     }
 
                     //Log the 
                     log.Information(
                         FOUND_VH_TEMPLATE,
                         hostNames,
-                        conf.FileRoot,
+                        conf.RootDir.FullName,
                         conf.TransportEndpoint,
                         conf.Certificate != null,
                         conf.ClientCertRequired,

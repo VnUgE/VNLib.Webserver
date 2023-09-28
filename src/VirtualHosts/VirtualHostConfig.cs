@@ -27,79 +27,43 @@ using System.IO;
 using System.Net;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using System.Security.Cryptography.X509Certificates;
 
-using VNLib.Net.Http;
 using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.ServiceStack;
+using VNLib.Plugins.Essentials.ServiceStack.Construction;
 
 namespace VNLib.WebServer
 {
     /// <summary>
     /// Implementation of <see cref="IEpProcessingOptions"/>
-    /// with <see cref="VirtualHost"/> extra processing options
+    /// with <see cref="VirtualHostHooks"/> extra processing options
     /// </summary>
-    internal sealed class VirtualHostConfig : IEpProcessingOptions, IHostTransportInfo
+    internal sealed class VirtualHostConfig : VirtualHostConfiguration, IEpProcessingOptions, IHostTransportInfo
     {
-        ///<inheritdoc/>
-        public FileAttributes AllowedAttributes { get; } = FileAttributes.Archive | FileAttributes.Compressed | FileAttributes.Normal | FileAttributes.ReadOnly;
-
-        ///<inheritdoc/>
-        public FileAttributes DissallowedAttributes { get; } = FileAttributes.Device
-         | FileAttributes.Directory
-         | FileAttributes.Encrypted
-         | FileAttributes.Hidden
-         | FileAttributes.IntegrityStream
-         | FileAttributes.Offline
-         | FileAttributes.ReparsePoint
-         | FileAttributes.System;
-
-        ///<inheritdoc/>
-        public IReadOnlyCollection<string> DefaultFiles { get; init; } = Array.Empty<string>();
-
-        ///<inheritdoc/>
-        public IReadOnlySet<string> ExcludedExtensions { get; init; } = new HashSet<string>();
-
-        ///<inheritdoc/>
-        public IReadOnlySet<IPAddress> DownStreamServers { get; init; } = new HashSet<IPAddress>();
-
-        ///<inheritdoc/>
-        public IReadOnlyDictionary<string, Redirect> HardRedirects { get; init; } = new Dictionary<string, Redirect>();
-      
-        ///<inheritdoc/>
-        public TimeSpan ExecutionTimeout { get; init; } = TimeSpan.FromSeconds(60);
-
-        /// <summary>
-        /// The virtual host file root
-        /// </summary>
-        public string FileRoot { get; init; } = string.Empty;
+        public VirtualHostConfig()
+        {
+            //Update file attributes
+            AllowedAttributes = FileAttributes.Archive | FileAttributes.Compressed | FileAttributes.Normal | FileAttributes.ReadOnly;
+            DissallowedAttributes = FileAttributes.Device
+                | FileAttributes.Directory
+                | FileAttributes.Encrypted
+                | FileAttributes.Hidden
+                | FileAttributes.IntegrityStream
+                | FileAttributes.Offline
+                | FileAttributes.ReparsePoint
+                | FileAttributes.System;
+        }
 
         /// <summary>
         /// Endables cross origin resoruce sharing protections
         /// </summary>
-        public bool AllowCors { get; init; }
-
-        /// <summary>
-        /// The TLS certificate to use for this website
-        /// </summary>
-        public X509Certificate? Certificate { get; init; }
+        public bool? AllowCors { get; init; }
 
         /// <summary>
         /// An optional value that specifies that a client must send a certificate
         /// on an ssl connection
         /// </summary>
         public bool ClientCertRequired { get; init; }
-
-        /// <summary>
-        /// Flag that only allows files to be read if the connection is considered 
-        /// to be from a browser
-        /// </summary>
-        public bool BrowserOnlyFileRead { get; init; }
-
-        /// <summary>
-        /// The IP endpoint of the server that should serve this root
-        /// </summary>
-        public IPEndPoint TransportEndpoint { get; init; } = new(IPAddress.Any, 80);
 
         /// <summary>
         /// A regex filter instance to filter incoming filesystem paths

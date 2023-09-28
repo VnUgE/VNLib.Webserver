@@ -71,19 +71,15 @@
       //The default file extensions to append to a resource that does not have a file extension
       "default_files": [ "index.html", "index.htm" ],
 
-      //Denys files to non-browser user-agent connections
-      "browser_only_files": false,
-
       //Key-value headers object, some headers are special and are controlled by the vh processor
       "headers": {
 
       },
 
-      //Enables cors support for all endpoints and header controls, if false, all endpoints that are send CORS request headers will be forbidden
-      "enable_cors": false,
+      //Enables cors support for all endpoints and header controls, if false, all endpoints that are send CORS request headers will be forbidden, undefined disables
+      //"enable_cors": false,  //undefined | true | false
 
-      //Allowed cors authoriy domains
-      "cors_allowed_authority": [],
+      //"cors_allowed_authority": [],
 
       //Define a TLS certificate (enables TLS on the interface)
       "ssl": {

@@ -31,10 +31,8 @@ using VNLib.Plugins.Runtime;
 
 namespace VNLib.WebServer.Plugins
 {
-    internal sealed record class PluginAssemblyLoader(PlugingAssemblyConfig Config) : IPluginAssemblyLoader
+    internal sealed record class PluginAssemblyLoader(IPluginAssemblyLoadConfig Config) : IAssemblyLoader
     {
-        ///<inheritdoc/>
-        IPluginConfig IPluginAssemblyLoader.Config => Config;
 
         private PluginLoader? _loader;
 
@@ -48,8 +46,21 @@ namespace VNLib.WebServer.Plugins
         ///<inheritdoc/>
         public void Load()
         {
+            PluginConfig pc = new(Config.AssemblyFile)
+            {
+                //Shared types are required to pass data between the plugin and the host
+                PreferSharedTypes = true,
+
+                //The plugin framework will handle hot-reloading
+                EnableHotReload = false,
+
+                //Specify unloading flag 
+                IsUnloadable = Config.Unloadable,
+                LoadInMemory = Config.Unloadable
+            };
+
             //Init a new loader if the old loader has been cleaned up, otherwise do nothing
-            _loader ??= new(Config);
+            _loader ??= new(pc);
         }
 
         ///<inheritdoc/>

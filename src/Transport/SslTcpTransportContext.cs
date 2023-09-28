@@ -25,7 +25,6 @@
 using System;
 using System.Net.Security;
 using System.Threading.Tasks;
-using System.Security.Authentication;
 using System.Runtime.CompilerServices;
 
 using VNLib.Net.Http;
@@ -33,28 +32,39 @@ using VNLib.Net.Transport.Tcp;
 
 namespace VNLib.WebServer.Transport
 {
-    sealed record class SslTcpTransportContext : TcpTransportContext
+    sealed record class SslTcpTransportContext(in TransportEventContext Ctx) : TcpTransportContext(in Ctx)
     {
-        private readonly Lazy<TransportSecurityInfo> _securityInfo;
+        private TransportSecurityInfo? _securityInfo;
 
-        public SslTcpTransportContext(in TransportEventContext ctx) : base(ctx)
+        ///<inheritdoc/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override ValueTask CloseConnectionAsync()
         {
-            //Store the ssl version of the connection
-            SslVersion = ctx.GetSslProtocol();
-
-            //Thread saftey is not requird since the http server and api is thread safe
-            _securityInfo = new(getSecInfo, false);
+            //Close the connection with the TCP server using the ssl overrides
+            return EventContext.CloseSslConnectionAsync();
         }
 
-        //Lazy load sec info
-        TransportSecurityInfo getSecInfo()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override ref readonly TransportSecurityInfo? GetSecurityInfo()
         {
-            //If this method is called then the connection is using tls
-            SslStream ssl = (EventContext.ConnectionStream as SslStream)!;
-
-            //Build sec info
-            TransportSecurityInfo so = new()
+            //Value has not been loaded yet, so lazy load it
+            if (!_securityInfo.HasValue)
             {
+                //Create sec info from the ssl stream
+                _securityInfo = GetSecInfo((SslStream)Ctx.ConnectionStream);
+            }
+
+            return ref _securityInfo;
+        }
+
+
+        //Lazy load sec info
+        private static TransportSecurityInfo GetSecInfo(SslStream ssl)
+        {
+            //Build sec info
+            return new()
+            {
+                SslProtocol = ssl.SslProtocol,
                 HashAlgorithm = ssl.HashAlgorithm,
                 CipherAlgorithm = ssl.CipherAlgorithm,
 
@@ -75,24 +85,8 @@ namespace VNLib.WebServer.Transport
 
                 TransportContext = ssl.TransportContext,
                 NegotiatedCipherSuite = ssl.NegotiatedCipherSuite,
-                NegotiatedApplicationProtocol = ssl.NegotiatedApplicationProtocol,
+                NegotiatedApplicationProtocol = ssl.NegotiatedApplicationProtocol,               
             };
-            return so;
         }
-
-        ///<inheritdoc/>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override ValueTask CloseConnectionAsync()
-        {
-            //Close the connection with the TCP server using the ssl overrides
-            return EventContext.CloseSslConnectionAsync();
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override TransportSecurityInfo? GetSecurityInfo() => _securityInfo.Value;
-
-        ///<inheritdoc/>
-        public override SslProtocols SslVersion { get; }
-
     }
 }

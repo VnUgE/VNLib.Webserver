@@ -61,15 +61,17 @@ namespace VNLib.WebServer
             {
                 X509Certificate? cert = GetCertificate();
 
+                string rootDir = _rootConfig[SERVER_ROOT_PATH_PROP_NAME].GetString()
+                    ?? throw new ArgumentException($"A virtual host was defined without a root directory property: '{SERVER_ROOT_PATH_PROP_NAME}'");
+
                 //Declare the vh config
                 VirtualHostConfig vhConfig = new()
                 {
                     //File root is required
-                    FileRoot = _rootConfig[SERVER_ROOT_PATH_PROP_NAME].GetString()
-                    ?? throw new ArgumentException($"A virtual host was defined without a root directory property: '{SERVER_ROOT_PATH_PROP_NAME}'"),
-
+                    RootDir = new(rootDir),
+                    
                     //Cors setup
-                    AllowCors = _rootConfig.TryGetValue(SERVER_CORS_ENEABLE_PROP_NAME, out JsonElement corsEl) && corsEl.GetBoolean(),
+                    AllowCors = GetTriStateCorsEnabled(),
                     AllowedCorsAuthority = GetAllowedAuthority(),
 
                     //Set optional whitelist
@@ -103,8 +105,6 @@ namespace VNLib.WebServer
                     ExecutionTimeout = ExecTimeout,
 
                     FailureFiles = GetFailureFiles(),
-
-                    BrowserOnlyFileRead = _rootConfig.TryGetValue(SERVER_BROWSER_ONLY_PROP_NAME, out JsonElement bOnlyEl) && bOnlyEl.GetBoolean()
                 };
 
                 return vhConfig;
@@ -361,6 +361,16 @@ namespace VNLib.WebServer
                         .Where(static p => SpecialHeaders.SpecialHeader.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
                         //Create the special dictionary
                         .ToDictionary(static k => k.Name, static k => k.Value.GetString()!, StringComparer.OrdinalIgnoreCase);
+            }
+
+            private bool? GetTriStateCorsEnabled()
+            {
+                //If cors is not set, return null
+                if (_rootConfig.TryGetValue(SERVER_CORS_ENEABLE_PROP_NAME, out JsonElement corsEl))
+                {
+                    return corsEl.GetBoolean();
+                }
+                return null;
             }
         }
     }

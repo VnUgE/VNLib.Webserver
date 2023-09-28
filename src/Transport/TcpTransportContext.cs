@@ -25,7 +25,6 @@
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
-using System.Security.Authentication;
 using System.Runtime.CompilerServices;
 
 using VNLib.Net.Http;
@@ -36,8 +35,11 @@ namespace VNLib.WebServer.Transport
     /// <summary>
     /// The TCP connection context
     /// </summary>
-    record class TcpTransportContext(in TransportEventContext EventContext) : ITransportContext
+    internal record class TcpTransportContext(in TransportEventContext EventContext) : ITransportContext
     {
+        //Store static empty security info to pass in default case
+        private static readonly TransportSecurityInfo? EmptySecInfo;
+
         ///<inheritdoc/>
         public virtual Stream ConnectionStream
         {
@@ -69,10 +71,6 @@ namespace VNLib.WebServer.Transport
 
         //Ssl is not supported in this transport
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public virtual TransportSecurityInfo? GetSecurityInfo() => null;
-
-        //Ssl is not supported in this transport
-        ///<inheritdoc/>
-        public virtual SslProtocols SslVersion { get; } = SslProtocols.None;
+        public virtual ref readonly TransportSecurityInfo? GetSecurityInfo() => ref EmptySecInfo;
     }
 }

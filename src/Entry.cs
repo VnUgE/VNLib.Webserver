@@ -56,26 +56,6 @@ using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
 using VNLib.Plugins.Essentials.ServiceStack.Construction;
 
-
-/*
-* Arguments
-* --config <config_path>
-* -v --verbose
-* -d --debug
-* -vv double verbose mode (logs all app-domain events)
-* -s --silent silent logging mode, does not print logs to the console, only to output files
-* --log-http prints raw http requests to the application log
-* --rpmalloc to force enable the rpmalloc library loading for the Memory class
-* --no-plugins disables plugin loading
-* -t --threads specify the number of accept threads
-* --use-os-ciphers disables hard-coded cipher suite and lets the OS decide the ciphersuite for ssl connections
-* --input-off disables listening on stdin for commands
-* --inline-scheduler uses the inline scheduler for the pipeline
-* --dump-config dumps the JSON config to the console
-* --compression-off disables dynamic response compressor
-*/
-
-
 namespace VNLib.WebServer
 {
 
@@ -161,13 +141,6 @@ Starting...
                 return 0;
             }
 
-            //Set the RPMalloc env var for the process
-            if (procArgs.RpMalloc)
-            {
-                //Set initial env to use the rpmalloc allocator for the default heaps
-                Environment.SetEnvironmentVariable(MemoryUtil.SHARED_HEAP_FILE_PATH, "vnlib_rpmalloc.dll", EnvironmentVariableTarget.Process);
-            }
-
             Console.WriteLine(STARTUP_MESSAGE);
 
             //Init log config builder
@@ -196,6 +169,13 @@ Starting...
 
             //Setup the app-domain listener
             InitAppDomainListener(procArgs, logger.AppLog);
+
+#if DEBUG
+            if (procArgs.LogHttp)
+            {
+                logger.AppLog.Warn("HTTP Logging is only enabled in builds compiled with DEBUG symbols");
+            }
+#endif
 
             //get the http conf for all servers
             HttpConfig? http = GetHttpConfig(config, procArgs, logger);
@@ -286,11 +266,10 @@ Starting...
     Option flags:
         --config         <path>     - Specifies the path to the configuration file (relative or absolute)
         --input-off                 - Disables the STDIN listener, no runtime commands will be processed
-        --rpmalloc                  - Force loads the rpmalloc allocator dll for the platform from safe directories
         --inline-scheduler          - Enables inline scheduling for TCP transport IO processing
         --use-os-ciphers            - Overrides pre-configured TLS ciphers with OS provided ciphers
         --no-plugins                - Disables loading of dynamic plugins
-        --log-http                  - Enables logging of HTTP request and response headers to the system logger
+        --log-http                  - Enables logging of HTTP request and response headers to the system logger (debug builds only)
         --dump-config               - Dumps the JSON configuration to the console during loading
         --compression-off           - Disables dynamic response compression
         -h, --help                  - Prints this help menu

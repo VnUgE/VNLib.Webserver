@@ -39,7 +39,6 @@ namespace VNLib.WebServer.RuntimeLoading
         public bool Verbose => HasArgument("-v") || HasArgument("--verbose");
         public bool Debug => HasArgument("-d") || HasArgument("--debug");
         public bool Silent => HasArgument("-s") || HasArgument("--silent");
-        public bool RpMalloc => HasArgument("--rpmalloc");
         public bool DoubleVerbose => Verbose && HasArgument("-vv");
         public bool LogHttp => HasArgument("--log-http");
     }

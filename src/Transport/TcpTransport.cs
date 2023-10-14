@@ -103,7 +103,7 @@ namespace VNLib.WebServer.Transport
             }
         }
 
-        private record class SslTcpTransportProvider(TcpServer Server, SslServerAuthenticationOptions AuthOptions) : TcpTransportProvider(Server)
+        private sealed record class SslTcpTransportProvider(TcpServer Server, SslServerAuthenticationOptions AuthOptions) : TcpTransportProvider(Server)
         {
             public override async ValueTask<ITransportContext> AcceptAsync(CancellationToken cancellation)
             {

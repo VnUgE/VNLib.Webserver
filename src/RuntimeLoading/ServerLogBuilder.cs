@@ -34,7 +34,7 @@ using VNLib.Utils.Extensions;
 
 namespace VNLib.WebServer.RuntimeLoading
 {
-    internal class ServerLogBuilder
+    internal sealed class ServerLogBuilder
     {
         public LoggerConfiguration SysLogConfig { get; }
         public LoggerConfiguration AppLogConfig { get; }

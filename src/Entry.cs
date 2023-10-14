@@ -177,6 +177,11 @@ Starting...
             }
 #endif
 
+            if (procArgs.ZeroAllocations && !MemoryUtil.Shared.CreationFlags.HasFlag(HeapCreation.GlobalZero))
+            {
+                logger.AppLog.Debug("Zero allocation flag was set, but the shared heap was not created with the GlobalZero flag, consider enabling zero allocations globally");
+            }
+
             //get the http conf for all servers
             HttpConfig? http = GetHttpConfig(config, procArgs, logger);
 
@@ -272,6 +277,7 @@ Starting...
         --log-http                  - Enables logging of HTTP request and response headers to the system logger (debug builds only)
         --dump-config               - Dumps the JSON configuration to the console during loading
         --compression-off           - Disables dynamic response compression
+        --zero-alloc                - Forces all http/tcp memory pool allocations to be zeroed before use (reduced performance)
         -h, --help                  - Prints this help menu
         -t, --threads    <num>      - Specifies the number of socket accept threads. Defaults to processor count
         -s, --silent                - Disables all console logging
@@ -533,7 +539,7 @@ Starting...
                                                                             .EnumerateObject()
                                                                             .ToDictionary(static k => k.Name, static v => v.Value);
 
-                HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool())
+                HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool(args.ZeroAllocations))
                 {
                     RequestDebugLog = args.LogHttp ? logger.AppLog : null,
                     CompressionLimit = httpEl["compression_limit"].GetInt32(),
@@ -665,7 +671,7 @@ Starting...
             if (group.Hosts.Where(static h => h.TransportInfo.Certificate != null).Any())
             {
                 //If any hosts have ssl enabled, all shared endpoints MUST include a certificate to be bound to the same endpoint
-                if(!group.Hosts.All(h => h.TransportInfo.Certificate != null))
+                if(!group.Hosts.All(static h => h.TransportInfo.Certificate != null))
                 {
                     throw new ServerConfigurationException("One or more service hosts declared a shared endpoint with SSL enabled but not every host declared an SSL certificate for the shared interface");
                 }
@@ -703,7 +709,7 @@ Starting...
                 BackLog = BaseTcpConfig.BackLog,
 
                 //Init buffer pool
-                BufferPool = PoolManager.GetPool()
+                BufferPool = PoolManager.GetPool(args.ZeroAllocations)
             };
 
             //Init new tcp server with/without ssl

@@ -74,7 +74,7 @@ namespace VNLib.WebServer
         /// <returns>The <see cref="IMemoryResponseReader"/> wrapper around the file data</returns>
         public IMemoryResponseReader GetReader() => new MemReader(_templateData.Value);
 
-        private class MemReader : IMemoryResponseReader
+        private sealed class MemReader : IMemoryResponseReader
         {
             private readonly byte[] _memory;
 

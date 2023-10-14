@@ -24,12 +24,13 @@
 
 using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 using VNLib.Utils.Memory;
 using VNLib.Utils.Extensions;
-
 using VNLib.Net.Http;
+
 
 namespace VNLib.WebServer.TcpMemoryPool
 {
@@ -43,20 +44,27 @@ namespace VNLib.WebServer.TcpMemoryPool
         /// </summary>
         /// <typeparam name="T">The pool type to create</typeparam>
         /// <returns>The memory pool</returns>
-        public static MemoryPool<byte> GetPool()
+        public static MemoryPool<byte> GetPool(bool zeroOnAlloc)
         {           
             //Use the shared heap impl. which also allows diagnostics, and is tuned
-            return new HttpMemoryPool();
+            return new HttpMemoryPool(zeroOnAlloc);
         }
 
         /// <summary>
         /// Gets a memory pool provider for the HTTP server to alloc buffers from
         /// </summary>
         /// <returns>The http server memory pool</returns>
-        public static IHttpMemoryPool GetHttpPool() => new HttpMemoryPool();
+        public static IHttpMemoryPool GetHttpPool(bool zeroOnAlloc) => new HttpMemoryPool(zeroOnAlloc);
 
-        internal class HttpMemoryPool : MemoryPool<byte>, IHttpMemoryPool
+        internal sealed class HttpMemoryPool : MemoryPool<byte>, IHttpMemoryPool
         {
+            private readonly bool _zeroOnAlloc;
+
+            public HttpMemoryPool(bool zeroOnAlloc)
+            {
+                _zeroOnAlloc = zeroOnAlloc;
+            }
+
             ///<inheritdoc/>
             public override int MaxBufferSize { get; } = int.MaxValue;
 
@@ -67,14 +75,14 @@ namespace VNLib.WebServer.TcpMemoryPool
             ///<inheritdoc/>
             public MemoryHandle<T> AllocFormDataBuffer<T>(int initialSize) where T : unmanaged
             {
-                return MemoryUtil.Shared.Alloc<T>(initialSize);
+                return MemoryUtil.Shared.Alloc<T>(initialSize, _zeroOnAlloc);
             }
 
             ///<inheritdoc/>
             public override IMemoryOwner<byte> Rent(int minBufferSize = -1)
             {
                 nint toPage = MemoryUtil.NearestPage(minBufferSize);
-                return new UnsafeMemoryManager(MemoryUtil.Shared, (int)toPage);
+                return new UnsafeMemoryManager(MemoryUtil.Shared, (nuint)toPage, _zeroOnAlloc);
             }
 
             ///<inheritdoc/>
@@ -88,14 +96,20 @@ namespace VNLib.WebServer.TcpMemoryPool
                 private IntPtr _pointer;
                 private int _size;
 
-                public UnsafeMemoryManager(IUnmangedHeap heap, int bufferSize)
+                public UnsafeMemoryManager(IUnmangedHeap heap, nuint bufferSize, bool zero)
                 {
-                    _size = bufferSize;
+                    _size = (int)bufferSize;
                     _heap = heap;
-                    _pointer = heap.Alloc((nuint)bufferSize, sizeof(byte), false);
+                    _pointer = heap.Alloc(bufferSize, sizeof(byte), zero);
                 }
 
-                public override Span<byte> GetSpan() => MemoryUtil.GetSpan<byte>(_pointer, _size);
+                public override Span<byte> GetSpan()
+                {
+                    //Guard
+                    Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly or was released");
+
+                    return MemoryUtil.GetSpan<byte>(_pointer, _size);
+                }
 
                 public override MemoryHandle Pin(int elementIndex = 0)
                 {
@@ -104,6 +118,8 @@ namespace VNLib.WebServer.TcpMemoryPool
                     {
                         throw new ArgumentOutOfRangeException(nameof(elementIndex));
                     }
+
+                    Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly or was released");
 
                     //Get pointer offset from index
                     IntPtr offset = IntPtr.Add(_pointer, elementIndex);
@@ -119,6 +135,8 @@ namespace VNLib.WebServer.TcpMemoryPool
 
                 protected override void Dispose(bool disposing)
                 {
+                    Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly");
+
                     //Free the memory, should also zero the pointer
                     _heap.Free(ref _pointer);
                     

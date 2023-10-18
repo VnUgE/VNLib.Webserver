@@ -26,7 +26,6 @@ using System;
 using System.IO;
 using System.Net;
 using System.Globalization;
-using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
 
 using VNLib.Net.Http;
@@ -108,13 +107,19 @@ namespace VNLib.WebServer
             return sb.ToString();
         }
 
-        public ValueTask<FileProcessArgs> PreProcessEntityAsync(HttpEntity entity)
+        public void PreProcessEntityAsync(HttpEntity entity, out FileProcessArgs args)
         {
-            return ValueTask.FromResult(FileProcessArgs.Continue);
+            args = FileProcessArgs.Continue;
         }
 
-        public void PostProcessFile(HttpEntity entity, in FileProcessArgs chosenRoutine)
+        public void PostProcessFile(HttpEntity entity, ref FileProcessArgs chosenRoutine)
         {
+            //Do not respond to virtual processors
+            if (chosenRoutine == FileProcessArgs.VirtualSkip)
+            {
+                return;
+            }
+
             //Get-set the x-content options headers from the client config
             VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.XContentOption);
 
@@ -141,7 +146,7 @@ namespace VNLib.WebServer
                     {
                         ReadOnlySpan<char> filePath = chosenRoutine.Alternate.AsSpan();
 
-                        //Use the alternal file path for extension
+                        //Use the alternate file path for extension
                         ext = Path.GetExtension(filePath);
 
                         //Set default cache
@@ -169,7 +174,7 @@ namespace VNLib.WebServer
                     }
                     break;
             }
-            
+
             //if the file is an html file, we are setting the csp and xss special headers
             if (ext.IsEmpty || ext.Equals(".html", StringComparison.OrdinalIgnoreCase))
             {

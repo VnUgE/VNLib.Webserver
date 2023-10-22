@@ -33,7 +33,11 @@ tasks:
        vars: 
          BUILD_MODE: debug 
          TARGET_OS: osx-x64
-   
+
+     - task: postbuild
+       vars: 
+         BUILD_MODE: debug 
+         TARGET_OS: linux-arm64   
 
      #remove uncessary files from the release dir
      - powershell -Command "Get-ChildItem -Recurse '{{.RELEASE_DIR}}/' -Include *.pdb,*.xml | Remove-Item"
@@ -54,6 +58,10 @@ tasks:
          BUILD_MODE: release 
          TARGET_OS: osx-x64
 
+     - task: postbuild
+       vars: 
+         BUILD_MODE: release 
+         TARGET_OS: linux-arm64
 
   postbuild:
     dir: '{{.USER_WORKING_DIR}}'

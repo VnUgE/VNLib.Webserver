@@ -82,7 +82,7 @@ namespace VNLib.WebServer.Middlewares
                     }
 
                     //Try to prevent security downgrade attacks
-                    if (!(entity.Session.IPMatch && entity.Session.SecurityProcol <= entity.Server.SecurityProtocol))
+                    if (!(entity.Session.IPMatch && entity.Session.SecurityProcol <= entity.Server.GetSslProtocol()))
                     {
                         Log.Debug("Denied connection from {0} due to security downgrade attack.", entity.TrustedRemoteIp);
                         return ValueTask.FromResult(FileProcessArgs.Deny);

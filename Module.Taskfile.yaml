@@ -48,6 +48,7 @@ tasks:
      - powershell -Command 'dotnet publish -c debug -r win-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
      - powershell -Command 'dotnet publish -c debug -r linux-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
      - powershell -Command 'dotnet publish -c debug -r osx-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
+     - powershell -Command 'dotnet publish -c debug -r linux-arm64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
 
   build_release:
     dir: '{{.USER_WORKING_DIR}}'
@@ -56,3 +57,4 @@ tasks:
      - powershell -Command 'dotnet publish -c release -r win-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
      - powershell -Command 'dotnet publish -c release -r linux-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
      - powershell -Command 'dotnet publish -c release -r osx-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
+     - powershell -Command 'dotnet publish -c release -r linux-arm64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'

@@ -38,6 +38,7 @@ namespace VNLib.WebServer.Middlewares
     /// Adds required http session protections to http servers
     /// </summary>
     /// <param name="Log"></param>
+    [MiddlewareImpl(MiddlewareImplOptions.SecurityCritical)]
     internal sealed record class SessionSecurityMiddelware(ILogProvider Log) : IHttpMiddleware
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)

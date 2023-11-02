@@ -39,6 +39,7 @@ namespace VNLib.WebServer.Middlewares
     /// </summary>
     /// <param name="Log"></param>
     /// <param name="VirtualHostOptions"></param>
+    [MiddlewareImpl(MiddlewareImplOptions.SecurityCritical)]
     internal sealed record class CORSMiddleware(ILogProvider Log, VirtualHostConfig VirtualHostOptions) : IHttpMiddleware
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)

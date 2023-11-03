@@ -73,9 +73,11 @@ namespace VNLib.WebServer.TcpMemoryPool
             public IMemoryOwner<byte> AllocateBufferForContext(int bufferSize) => Rent(bufferSize);
 
             ///<inheritdoc/>
-            public MemoryHandle<T> AllocFormDataBuffer<T>(int initialSize) where T : unmanaged
+            public IResizeableMemoryHandle<T> AllocFormDataBuffer<T>(int initialSize) where T : unmanaged
             {
-                return MemoryUtil.Shared.Alloc<T>(initialSize, _zeroOnAlloc);
+                //round to nearest page
+                nint initSize = MemoryUtil.NearestPage(initialSize);
+                return MemoryUtil.Shared.Alloc<T>(initSize, _zeroOnAlloc);
             }
 
             ///<inheritdoc/>

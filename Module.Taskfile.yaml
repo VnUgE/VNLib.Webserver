@@ -29,6 +29,11 @@ tasks:
      #build debug mode first
      - task: build_debug
      - task: build_release
+  
+  postbuild_success:
+    cmds: 
+    #git archive in the module directory
+     - git archive --format {{.ARCHIVE_FILE_FORMAT}} --output {{.ARCHIVE_FILE_NAME}} HEAD
 
 
 #called by build pipeline to clean module
@@ -49,6 +54,7 @@ tasks:
      - powershell -Command 'dotnet publish -c debug -r linux-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
      - powershell -Command 'dotnet publish -c debug -r osx-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
      - powershell -Command 'dotnet publish -c debug -r linux-arm64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
+     - powershell -Command 'dotnet publish -c debug -r linux-arm {{.BUILD_FLAGS}} {{.MS_ARGS}}'     #managed source supports arm32 unmanaged does not
 
   build_release:
     dir: '{{.USER_WORKING_DIR}}'
@@ -58,3 +64,4 @@ tasks:
      - powershell -Command 'dotnet publish -c release -r linux-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
      - powershell -Command 'dotnet publish -c release -r osx-x64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
      - powershell -Command 'dotnet publish -c release -r linux-arm64 {{.BUILD_FLAGS}} {{.MS_ARGS}}'
+     - powershell -Command 'dotnet publish -c release -r linux-arm {{.BUILD_FLAGS}} {{.MS_ARGS}}'   #managed source supports arm32 unmanaged does not

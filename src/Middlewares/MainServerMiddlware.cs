@@ -34,6 +34,7 @@ using VNLib.Plugins.Essentials.Middleware;
 
 namespace VNLib.WebServer.Middlewares
 {
+
     /// <summary>
     /// Provides required/essential server functionality as a middelware processor
     /// </summary>
@@ -49,13 +50,6 @@ namespace VNLib.WebServer.Middlewares
             if (entity.Server.IsWebSocketRequest)
             {
                 Log.Verbose("Client {ip} made a websocket request", entity.TrustedRemoteIp);
-            }
-
-            //If a whitelist has been defined, block requests from non-whitelisted IPs
-            if (VirtualHostOptions.WhiteList != null && !VirtualHostOptions.WhiteList.Contains(entity.TrustedRemoteIp))
-            {
-                Log.Verbose("Client {ip} is not whitelisted, blocked", entity.TrustedRemoteIp);
-                return ValueTask.FromResult(FileProcessArgs.Deny);
             }
 
             ref readonly TransportSecurityInfo? tlsSecInfo = ref entity.Server.GetTransportSecurityInfo();

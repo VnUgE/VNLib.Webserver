@@ -457,7 +457,6 @@ Starting...
 
                     //Init middleware stack
                     MainServerMiddlware main = new(log, conf);
-                    CORSMiddleware cors = new(log, conf);
                     SessionSecurityMiddelware sess = new(log);                    
 
                     //Create a new vritual host for every hostname using the same configuration
@@ -489,7 +488,13 @@ Starting...
                          */
                         if (conf.AllowCors != null)
                         {
-                            vh.WithMiddleware(cors);
+                            vh.WithMiddleware(new CORSMiddleware(log, conf));
+                        }
+
+                        //Add whitelist middleware if the configuration has a whitelist
+                        if(conf.WhiteList != null)
+                        {
+                            vh.WithMiddleware(new WhitelistMiddleware(log, conf.WhiteList));
                         }
                     }
 

@@ -1,5 +1,5 @@
 # VNLib.Webserver
-A high performance, reference .NET 6 web/http server using VNLib.Core, with the VNLib.Plugins.Essentials web framework
+A high performance, reference .NET 6 http web server using VNLib.Core, that implements VNLib.Plugins.Essentials web framework
 
 ## Builds
 Debug build w/ symbols & xml docs, release builds, and individually packaged source code are available on my website (link below).  

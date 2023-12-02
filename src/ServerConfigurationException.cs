@@ -24,20 +24,6 @@
 
 using System;
 
-/*
-* Arguments
-* --config <config_path>
-* -v --verbose
-* -d --debug
-* -vv double verbose mode (logs all app-domain events)
-* -s --silent silent logging mode, does not print logs to the console, only to output files
-* --log-http prints raw http requests to the application log
-* --rpmalloc to force enable the rpmalloc library loading for the Memory class
-* --no-plugins disables plugin loading
-* -t --threads specify the number of accept threads
-*/
-
-
 namespace VNLib.WebServer
 {
     public class ServerConfigurationException : Exception

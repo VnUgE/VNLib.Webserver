@@ -544,19 +544,22 @@ Starting...
                                                                             .EnumerateObject()
                                                                             .ToDictionary(static k => k.Name, static v => v.Value);
 
+                IHttpCompressorManager? compressorManager = LoadOrDefaultCompressor(args, config, logger);
+
                 HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool(args.ZeroAllocations))
                 {
                     RequestDebugLog = args.LogHttp ? logger.AppLog : null,
-                    CompressionLimit = httpEl["compression_limit"].GetInt32(),
-                    CompressionMinimum = httpEl["compression_minimum"].GetInt32(),
                     DefaultHttpVersion = HttpHelpers.ParseHttpVersion(httpEl["default_version"].GetString()),
-                    MaxFormDataUploadSize = httpEl["multipart_max_size"].GetInt32(),
-                    MaxUploadSize = httpEl["max_entity_size"].GetInt32(),
+                    MaxUploadSize = httpEl["max_entity_size"].GetInt64(),
+                    CompressionLimit = (int)httpEl["compression_limit"].GetUInt32(),
+                    CompressionMinimum = (int)httpEl["compression_minimum"].GetUInt32(),
+                    MaxFormDataUploadSize = (int)httpEl["multipart_max_size"].GetUInt32(),
                     ConnectionKeepAlive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),
-                    ActiveConnectionRecvTimeout = httpEl["recv_timeout_ms"].GetInt32(),
-                    SendTimeout = httpEl["send_timeout_ms"].GetInt32(),
-                    MaxRequestHeaderCount = httpEl["max_request_header_count"].GetInt32(),
-                    MaxOpenConnections = httpEl["max_connections"].GetInt32(),                  
+                    ActiveConnectionRecvTimeout = (int)httpEl["recv_timeout_ms"].GetUInt32(),
+                    SendTimeout = (int)httpEl["send_timeout_ms"].GetUInt32(),
+                    MaxRequestHeaderCount = (int)httpEl["max_request_header_count"].GetUInt32(),
+                    MaxOpenConnections = (int)httpEl["max_connections"].GetUInt32(),     
+                    MaxUploadsPerRequest = httpEl["max_uploads_per_request"].GetUInt16(),
 
                     //Buffer config update
                     BufferConfig = new()
@@ -565,13 +568,15 @@ Starting...
                         ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
                         FormDataBufferSize = httpEl["multipart_max_buf_size"].GetInt32(),
                         ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
-                        ChunkedResponseAccumulatorSize = CHUNCKED_ACC_BUFFER_SIZE,
+
+                        //Only set chunk buffer size if compression is enabled
+                        ChunkedResponseAccumulatorSize = compressorManager != null ? CHUNCKED_ACC_BUFFER_SIZE : 0
                     },
 
                     HttpEncoding = Encoding.ASCII,
 
                     //Init compressor
-                    CompressorManager = LoadOrDefaultCompressor(args, config, logger)
+                    CompressorManager = compressorManager
                 };
                 return conf.DefaultHttpVersion == Net.Http.HttpVersion.None
                     ? throw new ServerConfigurationException("Your default HTTP version is invalid, specify an RFC formatted http version 'HTTP/x.x'")
@@ -734,7 +739,7 @@ Starting...
                 {
                     continue;
                 }
-                switch (s[0].ToLower())
+                switch (s[0].ToLower(null))
                 {
                     //handle plugin
                     case "p":

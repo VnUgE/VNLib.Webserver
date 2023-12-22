@@ -43,10 +43,13 @@ using VNLib.Utils.Logging;
 using VNLib.Utils.Resources;
 using VNLib.Utils.Extensions;
 using VNLib.Utils.Memory.Diagnostics;
+using VNLib.Hashing;
+using VNLib.Hashing.Native.MonoCypher;
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
 using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.ServiceStack;
+using VNLib.Plugins.Essentials.ServiceStack.Construction;
 
 using VNLib.WebServer.Plugins;
 using VNLib.WebServer.Transport;
@@ -54,7 +57,6 @@ using VNLib.WebServer.Compression;
 using VNLib.WebServer.Middlewares;
 using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
-using VNLib.Plugins.Essentials.ServiceStack.Construction;
 
 namespace VNLib.WebServer
 {
@@ -263,7 +265,7 @@ Starting...
         static void PrintHelpMenu()
         {
             const string TEMPLATE =
-@"
+@$"
     VNLib.Webserver Copyright (C) 2023 Vaughn Nugent
 
     A high-performance, cross-platform, single process, reference webserver built on the .NET 6.0 Core runtime.
@@ -291,6 +293,14 @@ Starting...
     You should disable hot-reload for production environments, for security and performance reasons.
 
     You may consider using the --input-off flag to disable STDIN listening for production environments for security reasons.
+
+    Optional environment variables:
+        {MemoryUtil.SHARED_HEAP_FILE_PATH} - Specifies the path to the native heap allocator library
+        {MemoryUtil.SHARED_HEAP_ENABLE_DIAGNOISTICS_ENV} - Enables heap diagnostics for the shared heap 1 = enabled, 0 = disabled
+        {MemoryUtil.SHARED_HEAP_GLOBAL_ZERO} - Enables zeroing of all allocations from the shared heap 1 = enabled, 0 = disabled
+        {MemoryUtil.SHARED_HEAP_RAW_FLAGS} - Raw flags to pass to the shared heap allocator's HeapCreate function, hexadeciaml encoded
+        {VnArgon2.ARGON2_LIB_ENVIRONMENT_VAR_NAME} - Specifies the path to the Argon2 native library
+        {MonoCypherLibrary.MONOCYPHER_LIB_ENVIRONMENT_VAR_NAME} - Specifies the path to the Monocypher native library
 
     Usage:
         VNLib.Webserver --config <path> ... (other options)     #Starts the server from the configuration (basic usage)

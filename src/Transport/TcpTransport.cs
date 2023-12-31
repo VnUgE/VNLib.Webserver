@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2023 Vaughn Nugent
+* Copyright (c) 2024 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -58,12 +58,22 @@ namespace VNLib.WebServer.Transport
         /// </summary>
         /// <param name="config"></param>
         /// <param name="ssl">The server authentication options</param>
-        /// <param name="inlineScheduler">Use the inline pipeline scheduler</param>
         /// <returns>The ssl configured transport context</returns>
-        public static ITransportProvider CreateServer(in TCPConfig config, SslServerAuthenticationOptions ssl, bool inlineScheduler)
+        public static ITransportProvider CreateServer(in TCPConfig config, SslServerAuthenticationOptions ssl)
         {
-            //Create tcp server
-            TcpServer server = new (config, CreateCustomPipeOptions(in config, inlineScheduler));
+            /*
+             * SSL STREAM WORKAROUND
+             * 
+             * The HttpServer impl calls Read() synchronously on the calling thread, 
+             * it assumes that the call will make it synchronously to the underlying 
+             * transport. SslStream calls ReadAsync() interally on the current 
+             * synchronization context, which causes a deadlock... So the threadpool 
+             * scheduler on the pipeline ensures that all continuations are run on the
+             * threadpool, which fixes this issue.
+             */
+
+            //Create tcp server 
+            TcpServer server = new (config, CreateCustomPipeOptions(in config, false));
             //Return provider
             return new SslTcpTransportProvider(server, ssl);
         }
@@ -78,7 +88,7 @@ namespace VNLib.WebServer.Transport
                 pauseWriterThreshold: config.MaxRecvBufferData,
                 minimumSegmentSize: 8192,
                 useSynchronizationContext: false
-                );
+            );
         }
 
         /// <summary>
@@ -90,16 +100,16 @@ namespace VNLib.WebServer.Transport
             void ITransportProvider.Start(CancellationToken stopToken)
             {
                 //Start the server
-                Server.Start(stopToken);
+                _ = Server.Start(stopToken);
             }
 
             ///<inheritdoc/>
             public virtual async ValueTask<ITransportContext> AcceptAsync(CancellationToken cancellation)
             {
                 //Wait for tcp event and wrap in ctx class
-                TransportEventContext ctx = await Server.AcceptAsync(cancellation);
+                ITcpConnectionDescriptor descriptor = await Server.AcceptConnectionAsync(cancellation);
                 //Wrap event
-                return new TcpTransportContext(in ctx);
+                return new TcpTransportContext(Server, descriptor, descriptor.GetStream());
             }
         }
 
@@ -108,9 +118,23 @@ namespace VNLib.WebServer.Transport
             public override async ValueTask<ITransportContext> AcceptAsync(CancellationToken cancellation)
             {
                 //Wait for tcp event and wrap in ctx class
-                TransportEventContext ctx = await Server.AcceptSslAsync(AuthOptions, cancellation);
-                //Wrap event
-                return new SslTcpTransportContext(in ctx);
+                ITcpConnectionDescriptor descriptor = await Server.AcceptConnectionAsync(cancellation);
+
+                //Create ssl stream and auth
+                SslStream stream = new(descriptor.GetStream(), false);
+
+                try
+                {
+                    //auth the new connection
+                    await stream.AuthenticateAsServerAsync(AuthOptions, cancellation);
+                    return new SslTcpTransportContext(Server, descriptor, stream);                    
+                }
+                catch
+                {
+                    await Server.CloseConnectionAsync(descriptor);
+                    await stream.DisposeAsync();
+                    throw;
+                }
             }
         }
     }

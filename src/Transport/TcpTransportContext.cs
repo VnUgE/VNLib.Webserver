@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2023 Vaughn Nugent
+* Copyright (c) 2024 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -35,38 +35,55 @@ namespace VNLib.WebServer.Transport
     /// <summary>
     /// The TCP connection context
     /// </summary>
-    internal record class TcpTransportContext(in TransportEventContext EventContext) : ITransportContext
+    internal class TcpTransportContext : ITransportContext
     {
         //Store static empty security info to pass in default case
         private static readonly TransportSecurityInfo? EmptySecInfo;
+
+        protected readonly ITcpConnectionDescriptor _descriptor;
+
+        protected readonly Stream _connectionStream;
+        protected readonly IPEndPoint _localEndoint;
+        protected readonly IPEndPoint _remoteEndpoint;
+        protected readonly TcpServer _server;
+
+        public TcpTransportContext(TcpServer server, ITcpConnectionDescriptor descriptor, Stream stream)
+        {
+            _descriptor = descriptor;
+            _connectionStream = stream;
+            _server = server;
+            //Get the endpoints
+            descriptor.GetEndpoints(out _localEndoint, out _remoteEndpoint);
+        }
 
         ///<inheritdoc/>
         public virtual Stream ConnectionStream
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => EventContext.ConnectionStream;
+            get => _connectionStream;
         }
 
         ///<inheritdoc/>
         public virtual IPEndPoint LocalEndPoint
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => EventContext.LocalEndPoint;
+            get => _localEndoint;
         }
 
         ///<inheritdoc/>
         public virtual IPEndPoint RemoteEndpoint
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => EventContext.RemoteEndpoint;
+            get => _remoteEndpoint;
         }
 
         ///<inheritdoc/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public virtual ValueTask CloseConnectionAsync()
+        public virtual async ValueTask CloseConnectionAsync()
         {
-            //Close the connection with the TCP server
-            return EventContext.CloseConnectionAsync();
+            //Close the stream before the descriptor
+            await _connectionStream.DisposeAsync();
+            await _server.CloseConnectionAsync(_descriptor);
         }
 
         //Ssl is not supported in this transport

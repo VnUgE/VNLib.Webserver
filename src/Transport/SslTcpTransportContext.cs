@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2023 Vaughn Nugent
+* Copyright (c) 2024 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -22,7 +22,7 @@
 * along with VNLib.WebServer. If not, see http://www.gnu.org/licenses/.
 */
 
-using System;
+
 using System.Net.Security;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
@@ -32,16 +32,32 @@ using VNLib.Net.Transport.Tcp;
 
 namespace VNLib.WebServer.Transport
 {
-    sealed record class SslTcpTransportContext(in TransportEventContext Ctx) : TcpTransportContext(in Ctx)
+    internal sealed class SslTcpTransportContext : TcpTransportContext
     {
         private TransportSecurityInfo? _securityInfo;
+        private readonly SslStream _baseStream;
+
+        public SslTcpTransportContext(TcpServer server, ITcpConnectionDescriptor descriptor, SslStream stream): 
+            base(server, descriptor, stream)
+        {
+            _baseStream = stream;
+        }
 
         ///<inheritdoc/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override ValueTask CloseConnectionAsync()
+        public async override ValueTask CloseConnectionAsync()
         {
-            //Close the connection with the TCP server using the ssl overrides
-            return EventContext.CloseSslConnectionAsync();
+            try
+            {
+                //Shutdown the ssl stream before cleaning up the connection
+                await _baseStream.ShutdownAsync();
+                await _connectionStream.DisposeAsync();
+            }
+            finally
+            {
+                //Always close the underlying connection
+                await base.CloseConnectionAsync();
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -51,7 +67,7 @@ namespace VNLib.WebServer.Transport
             if (!_securityInfo.HasValue)
             {
                 //Create sec info from the ssl stream
-                _securityInfo = GetSecInfo((SslStream)Ctx.ConnectionStream);
+                GetSecInfo(ref _securityInfo, _baseStream);
             }
 
             return ref _securityInfo;
@@ -59,10 +75,10 @@ namespace VNLib.WebServer.Transport
 
 
         //Lazy load sec info
-        private static TransportSecurityInfo GetSecInfo(SslStream ssl)
+        private static void GetSecInfo(ref TransportSecurityInfo? tsi, SslStream ssl)
         {
             //Build sec info
-            return new()
+            tsi = new()
             {
                 SslProtocol = ssl.SslProtocol,
                 HashAlgorithm = ssl.HashAlgorithm,

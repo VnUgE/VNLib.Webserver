@@ -60,12 +60,6 @@ namespace VNLib.WebServer
         public bool? AllowCors { get; init; }
 
         /// <summary>
-        /// An optional value that specifies that a client must send a certificate
-        /// on an ssl connection
-        /// </summary>
-        public bool ClientCertRequired { get; init; }
-
-        /// <summary>
         /// A regex filter instance to filter incoming filesystem paths
         /// </summary>
         public Regex? PathFilter { get; init; }

@@ -30,16 +30,30 @@ using System.Linq;
 using System.Text.Json;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography.X509Certificates;
 
 using VNLib.Utils.Memory;
 using VNLib.Utils.Extensions;
+
 
 namespace VNLib.WebServer
 {
 
     static partial class Entry
     {
+        private sealed class CertState
+        {
+            public bool CertRequired { get; set; }
+        }
+
+        private static readonly ConditionalWeakTable<X509Certificate, CertState> _cerProperties = new();
+
+        public static bool IsClientCertRequired(this X509Certificate? cert)
+        {
+            return cert != null && _cerProperties.GetOrCreateValue(cert).CertRequired;
+        }
+
         private sealed class VirtualHostConfigBuilder
         {
             private readonly IReadOnlyDictionary<string, JsonElement> _rootConfig;
@@ -85,7 +99,6 @@ namespace VNLib.WebServer
 
                     //store certificate
                     Certificate = cert,
-                    ClientCertRequired = cert != null && ClientCertRequired(),
 
                     //Set inerface
                     TransportEndpoint = GetEndpoint(),
@@ -106,6 +119,12 @@ namespace VNLib.WebServer
 
                     FailureFiles = GetFailureFiles(),
                 };
+
+                //Set cert state for client cert required
+                if(cert != null)
+                {
+                    _cerProperties.GetOrCreateValue(cert).CertRequired = ClientCertRequired();
+                }
 
                 return vhConfig;
             }
@@ -202,8 +221,21 @@ namespace VNLib.WebServer
                     using PrivateString? password = (PrivateString?)sslConfEl.GetPropString("password");
 
                     //Load the cert and decrypt with password if set
-                    cert = password == null ? X509Certificate2.CreateFromPemFile(certFileName, privateKeyFile)
+                    using X509Certificate2 cert2 = password == null ? X509Certificate2.CreateFromPemFile(certFileName, privateKeyFile)
                         : X509Certificate2.CreateFromEncryptedPemFile(certFileName, password.ToReadOnlySpan(), privateKeyFile);
+
+                    /*
+                     * Workaround for a silly Windows SecureChannel module bug for parsing 
+                     * X509Certificate2 from pem cert and private key files. 
+                     * 
+                     * Must export into pkcs12 format then create a new X509Certificate2 from the 
+                     * exported bytes. 
+                     */
+
+                    //Copy the cert in pkcs12 format
+                    byte[] pkcs = cert2.Export(X509ContentType.Pkcs12);
+                    cert = new X509Certificate2(pkcs);
+                    MemoryUtil.InitializeBlock(pkcs);
                 }
                 else
                 {

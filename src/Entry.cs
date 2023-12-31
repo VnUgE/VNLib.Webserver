@@ -197,6 +197,7 @@ Starting...
 
             //Init service stack with built-in http
             HttpServiceStackBuilder stack = new HttpServiceStackBuilder()
+                                    .LoadPluginsConcurrently(!procArgs.HasArgument("--sequential-load"))
                                     .WithDomain(domain => LoadRoots(config, logger.AppLog, domain))
                                     .WithBuiltInHttp(sg => GetTransportForServiceGroup(sg, logger.SysLog, procArgs), http.Value);
 
@@ -273,13 +274,15 @@ Starting...
     Option flags:
         --config         <path>     - Specifies the path to the configuration file (relative or absolute)
         --input-off                 - Disables the STDIN listener, no runtime commands will be processed
-        --inline-scheduler          - Enables inline scheduling for TCP transport IO processing
+        --inline-scheduler          - Enables inline scheduling for TCP transport IO processing (not available when using TLS)
         --use-os-ciphers            - Overrides pre-configured TLS ciphers with OS provided ciphers
         --no-plugins                - Disables loading of dynamic plugins
         --log-http                  - Enables logging of HTTP request and response headers to the system logger (debug builds only)
+        --log-transport             - Enables logging of transport events to the system logger (debug builds only)
         --dump-config               - Dumps the JSON configuration to the console during loading
         --compression-off           - Disables dynamic response compression
         --zero-alloc                - Forces all http/tcp memory pool allocations to be zeroed before use (reduced performance)
+        --sequential-load           - Loads all plugins sequentially (default is concurrently)
         -h, --help                  - Prints this help menu
         -t, --threads    <num>      - Specifies the number of socket accept threads. Defaults to processor count
         -s, --silent                - Disables all console logging
@@ -370,6 +373,9 @@ Starting...
                 return;
             }
 
+            //See if an alternate plugin config directory is specified
+            string? altPluginConfigDir = plCfg.TryGetProperty("config_dir", out JsonElement cfgDirEl) ? cfgDirEl.GetString()! : null;
+
             //Check for hot-reload
             bool hotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean();
 
@@ -385,10 +391,21 @@ Starting...
             //Init new plugin stack builder
             PluginStackBuilder pluginBuilder = PluginStackBuilder.Create()
                                     .WithDebugLog(logger.AppLog)
-                                    .WithLocalJsonConfig(config.RootElement)
                                     .WithSearchDirectory(pluginDir)
                                     .WithLoaderFactory(pc => new PluginAssemblyLoader(pc));
 
+            //Setup plugin config data
+            if(string.IsNullOrWhiteSpace(altPluginConfigDir))
+            {
+                //Set config with root element
+                pluginBuilder.WithLocalJsonConfig(config.RootElement);
+            }
+            else
+            {
+                //Specify alternate config directory
+                pluginBuilder.WithJsonConfigDir(config.RootElement, new(altPluginConfigDir));
+            }
+            
 
             //Enable plugin hot-reload
             if (hotReload)
@@ -431,6 +448,7 @@ Starting...
  | Cors Enabled: {enlb}
  | Allowed Cors Sites: {cors}
 --------------------------------------------------";
+
 
         /// <summary>
         /// Loads all server roots from the configuration file
@@ -515,7 +533,7 @@ Starting...
                         conf.RootDir.FullName,
                         conf.TransportEndpoint,
                         conf.Certificate != null,
-                        conf.ClientCertRequired,
+                        conf.Certificate.IsClientCertRequired(),
                         conf.WhiteList?.ToArray(),
                         conf.DownStreamServers?.ToArray(),
                         conf.AllowCors,
@@ -728,13 +746,21 @@ Starting...
                 MaxRecvBufferData = BaseTcpConfig.MaxRecvBufferData,
                 BackLog = BaseTcpConfig.BackLog,
 
+                DebugTcpLog = args.HasArgument("--log-transport"),
+
                 //Init buffer pool
                 BufferPool = PoolManager.GetPool(args.ZeroAllocations)
             };
 
+            //Print warning message, since inline scheduler is an avanced feature
+            if(sslAuthOptions is not null && inlineScheduler)
+            {
+                sysLog.Debug("[WARN]: Inline scheduler is not available on server {server} when using TLS", group.ServiceEndpoint);
+            }
+
             //Init new tcp server with/without ssl
             return sslAuthOptions != null ? 
-                TcpTransport.CreateServer(in tcpConf, sslAuthOptions, inlineScheduler) 
+                TcpTransport.CreateServer(in tcpConf, sslAuthOptions) 
                 : TcpTransport.CreateServer(in tcpConf, inlineScheduler);
         }
 

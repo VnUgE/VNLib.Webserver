@@ -1,12 +1,12 @@
 ﻿/*
-* Copyright (c) 2023 Vaughn Nugent
+* Copyright (c) 2024 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
-* File: ServerSslOptions.cs 
+* File: HostAwareServerSslOptions.cs 
 *
-* ServerSslOptions.cs is part of VNLib.WebServer which is part of the larger 
-* VNLib collection of libraries and utilities.
+* HostAwareServerSslOptions.cs is part of VNLib.WebServer which is part 
+* of the larger VNLib collection of libraries and utilities.
 *
 * VNLib.WebServer is free software: you can redistribute it and/or modify 
 * it under the terms of the GNU General Public License as published
@@ -44,13 +44,15 @@ namespace VNLib.WebServer
         };
 
         private readonly IReadOnlyDictionary<string, X509Certificate> _certByHost;
-        private readonly IReadOnlyDictionary<string, VirtualHostConfig> _configByHost;
+        private readonly HashSet<string> _certRequiredHosts;
         private readonly X509Certificate? _defaultCert;
 
         public readonly bool ClientCertRequired;
 
         public HostAwareServerSslOptions(IReadOnlyCollection<IServiceHost> hosts, bool doNotForceTlsProtocols)
         {
+            ArgumentNullException.ThrowIfNull(hosts, nameof(hosts));
+
             //Set validation callback
             RemoteCertificateValidationCallback = OnRemoteCertVerification;
             ServerCertificateSelectionCallback = OnGetCertificatForHost;
@@ -58,10 +60,14 @@ namespace VNLib.WebServer
             //Get the vh configs from the transport info host config, all hosts passed to this constructor must all have certificates
             _certByHost = hosts.ToDictionary(static sh => sh.Processor.Hostname, static sh => sh.TransportInfo.Certificate!, StringComparer.OrdinalIgnoreCase);
 
-            //Store configurations
-            _configByHost = hosts.ToDictionary(static sh => sh.Processor.Hostname, static sh => (VirtualHostConfig)sh.TransportInfo, StringComparer.OrdinalIgnoreCase);
-
-            //Determine if any enpoints require client certificates
+            /*
+             * See if any certificates require a client certificate to be valid
+             * and only store the hostnames that require a client certificate in 
+             * lookup set by hostname
+             */
+            _certRequiredHosts = _certByHost.Where(kvp => kvp.Value.IsClientCertRequired())
+                .Select(kvp => kvp.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
 
             //Get the wildcard hostname as the default certificate
@@ -94,14 +100,11 @@ namespace VNLib.WebServer
              */
             if (
                 sender is SslStream ssl &&
-                _configByHost.TryGetValue(ssl.TargetHostName, out VirtualHostConfig? conf) || 
-                _configByHost.TryGetValue("*", out conf)
+                _certRequiredHosts.Contains(ssl.TargetHostName) ||
+                _certRequiredHosts.Contains("*")
                 )
             {
-                if (conf.ClientCertRequired)
-                {
-                    return sslPolicyErrors == SslPolicyErrors.None;
-                }
+                return sslPolicyErrors == SslPolicyErrors.None;
             }
 
             return sslPolicyErrors == SslPolicyErrors.RemoteCertificateNotAvailable;

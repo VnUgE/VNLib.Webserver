@@ -122,6 +122,7 @@
     "hot_reload": false,
     "reload_delay_sec": 2,
     "path": "/path/to/plugins_dir"
+    //"config_dir": ""
   },
 
   "sys_log": {

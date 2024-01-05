@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2023 Vaughn Nugent
+* Copyright (c) 2024 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -267,7 +267,7 @@ Starting...
         {
             const string TEMPLATE =
 @$"
-    VNLib.Webserver Copyright (C) 2023 Vaughn Nugent
+    VNLib.Webserver Copyright (C) 2024 Vaughn Nugent
 
     A high-performance, cross-platform, single process, reference webserver built on the .NET 6.0 Core runtime.
 

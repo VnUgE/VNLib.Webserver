@@ -1,7 +1,7 @@
 <h1 align="center">VNLib.Webserver</h1> 
 
 <p align="center">
-A high performance, reference .NET 6 web server built with <a href="https://github.com/VnUgE/VNLib.Core">VNLib.Core</a> and my Essentials web framework for building fast, plugin-driven web/http services
+A high performance, reference .NET 8 web server built with <a href="https://github.com/VnUgE/VNLib.Core">VNLib.Core</a> and my Essentials web framework for building fast, plugin-driven web/http services
 </p>
 
 <h4 align="center">
@@ -15,7 +15,7 @@ A high performance, reference .NET 6 web server built with <a href="https://gith
     <img src="https://img.shields.io/badge/license-AGPL3-green.svg" alt="CMNext is licensed to you with the GNU GPL Affero V3" />
   </a>
   <a href="https://github.com/VnUgE/VNLib.Webserver/tags">
-    <img src="https://img.shields.io/badge/.NET-6.0-purple" alt="Latest version"/>
+    <img src="https://img.shields.io/badge/.NET-8.0-purple" alt="Latest version"/>
   </a>
   <a href="https://github.com/VnUgE/VNLib.Webserver/tags">
     <img src="https://img.shields.io/github/last-commit/vnuge/VNLib.Webserver/master" alt="Latest commit"/>

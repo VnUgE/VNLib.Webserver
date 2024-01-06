@@ -269,7 +269,7 @@ Starting...
 @$"
     VNLib.Webserver Copyright (C) 2024 Vaughn Nugent
 
-    A high-performance, cross-platform, single process, reference webserver built on the .NET 6.0 Core runtime.
+    A high-performance, cross-platform, single process, reference webserver built on the .NET 8.0 Core runtime.
 
     Option flags:
         --config         <path>     - Specifies the path to the configuration file (relative or absolute)

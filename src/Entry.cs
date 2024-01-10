@@ -672,25 +672,13 @@ Starting...
                  * and second we can provide the library with the raw configuration data as a byte array
                  */
 
-                Type instanceType = instance.GetType();
+                //Invoke the on load method with the logger and config data
+                OnHttpLibLoad? onlibLoadConfig = ManagedLibrary.TryGetMethod<OnHttpLibLoad>(instance, EXTERN_LIB_LOAD_METHOD_NAME);
+                onlibLoadConfig?.Invoke(logger.AppLog, config.RootElement);
 
-                MethodInfo? onLoad = instanceType.GetMethod(EXTERN_LIB_LOAD_METHOD_NAME, new Type[] { typeof(ILogProvider), typeof(JsonElement?) });
-
-
-                if (onLoad != null)
-                {
-                    //Invoke the on load method with the logger and config data
-                    onLoad.CreateDelegate<OnHttpLibLoad>(instance).Invoke(logger.AppLog, config.RootElement);
-                }
-                else
-                {
-                    //Invoke parameterless on load method
-                    onLoad = instanceType.GetMethod(EXTERN_LIB_LOAD_METHOD_NAME, BindingFlags.Public);
-
-                    onLoad?.CreateDelegate<Action>(instance).Invoke();
-
-                    //If the library does not support the on load method, we can just ignore it
-                }
+                //Invoke parameterless on load method
+                Action? onLibLoad = ManagedLibrary.TryGetMethod<Action>(instance, EXTERN_LIB_LOAD_METHOD_NAME);
+                onLibLoad?.Invoke();
 
                 return instance;
             }

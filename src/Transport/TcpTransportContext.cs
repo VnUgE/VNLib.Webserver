@@ -83,7 +83,7 @@ namespace VNLib.WebServer.Transport
         {
             //Close the stream before the descriptor
             await _connectionStream.DisposeAsync();
-            await _server.CloseConnectionAsync(_descriptor);
+            await _server.CloseConnectionAsync(_descriptor, true);
         }
 
         //Ssl is not supported in this transport

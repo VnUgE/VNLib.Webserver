@@ -39,11 +39,13 @@ namespace VNLib.WebServer.Middlewares
     /// </summary>
     /// <param name="Log"></param>
     [MiddlewareImpl(MiddlewareImplOptions.SecurityCritical)]
-    internal sealed record class SessionSecurityMiddelware(ILogProvider Log) : IHttpMiddleware
+    internal sealed class SessionSecurityMiddelware(ILogProvider Log) : IHttpMiddleware
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {
-            if (entity.Session.IsSet)
+            ref readonly SessionInfo session = ref entity.Session;
+
+            if (session.IsSet)
             {
 
                 /*
@@ -51,7 +53,7 @@ namespace VNLib.WebServer.Middlewares
                 * and if the current connection is insecure, redirect them to a 
                 * secure connection.
                 */
-                if (entity.Session.SecurityProcol > SslProtocols.None && !entity.IsSecure)
+                if (session.SecurityProcol > SslProtocols.None && !entity.IsSecure)
                 {
                     //Redirect the client to https
                     UriBuilder ub = new(entity.Server.RequestUri)
@@ -64,7 +66,7 @@ namespace VNLib.WebServer.Middlewares
                 }
 
                 //If session is not new, then verify it matches stored credentials
-                if (!entity.Session.IsNew && entity.Session.SessionType == SessionType.Web)
+                if (!session.IsNew && session.SessionType == SessionType.Web)
                 {
                     /*
                      * When sessions are created for connections that come from a different 
@@ -74,8 +76,8 @@ namespace VNLib.WebServer.Middlewares
                      * is cross origin, then the origin must match the stored origin.
                      */
 
-                    if ((entity.Server.CrossOrigin || entity.Session.CrossOrigin)
-                        && !entity.Session.CrossOriginMatch
+                    if ((entity.Server.CrossOrigin || session.CrossOrigin)
+                        && !session.CrossOriginMatch
                         && entity.Server.Origin != null)
                     {
                         Log.Debug("Denied connection from {0} due to cross-origin session mismatch.", entity.TrustedRemoteIp);
@@ -83,7 +85,7 @@ namespace VNLib.WebServer.Middlewares
                     }
 
                     //Try to prevent security downgrade attacks
-                    if (!(entity.Session.IPMatch && entity.Session.SecurityProcol <= entity.Server.GetSslProtocol()))
+                    if (!(session.IPMatch && session.SecurityProcol <= entity.Server.GetSslProtocol()))
                     {
                         Log.Debug("Denied connection from {0} due to security downgrade attack.", entity.TrustedRemoteIp);
                         return ValueTask.FromResult(FileProcessArgs.Deny);

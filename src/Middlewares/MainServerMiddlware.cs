@@ -40,7 +40,7 @@ namespace VNLib.WebServer.Middlewares
     /// </summary>
     /// <param name="Log"></param>
     /// <param name="VirtualHostOptions"></param>
-    internal sealed record class MainServerMiddlware(ILogProvider Log, VirtualHostConfig VirtualHostOptions) : IHttpMiddleware
+    internal sealed class MainServerMiddlware(ILogProvider Log, VirtualHostConfig VirtualHostOptions) : IHttpMiddleware
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {

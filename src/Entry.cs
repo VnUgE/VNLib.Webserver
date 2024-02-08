@@ -34,8 +34,9 @@ using System.Reflection;
 using System.Net.Security;
 using System.Runtime.Loader;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
+using System.Security.Cryptography.X509Certificates;
 
 using VNLib.Utils.IO;
 using VNLib.Utils.Memory;
@@ -58,22 +59,21 @@ using VNLib.WebServer.Middlewares;
 using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
 
+
 namespace VNLib.WebServer
 {
 
-    static partial class Entry
+    static class Entry
     {
         const string STARTUP_MESSAGE =
-@"VNLib Copyright (C) Vaughn Nugent
+@"VNLib.Webserver - runtime host Copyright (C) Vaughn Nugent
 This program comes with ABSOLUTELY NO WARRANTY.
 Licensing for this software and other libraries can be found at https://www.vaughnnugent.com/resources/software
 Starting...
 ";
 
-
         private static readonly DirectoryInfo EXE_DIR = new(Environment.CurrentDirectory);
         private static readonly IPEndPoint DefaultInterface = new(IPAddress.Any, 80);
-        private static readonly Regex DefaultRootRegex = new(@"(\/\.\.)|(\\\.\.)|[\[\]^*<>|`~'\n\r\t\n]|(\s$)|^(\s)", RegexOptions.Compiled);
 
         private static readonly TCPConfig BaseTcpConfig = new()
         {
@@ -99,35 +99,35 @@ Starting...
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
 
-        private const string HOSTS_CONFIG_PROP_NAME = "virtual_hosts";
-        private const string SERVER_ERROR_FILE_PROP_NAME = "error_files";
+        internal const string HOSTS_CONFIG_PROP_NAME = "virtual_hosts";
+        internal const string SERVER_ERROR_FILE_PROP_NAME = "error_files";
 
-        private const string SERVER_ENDPOINT_PROP_NAME = "interface";
-        private const string SERVER_ENDPOINT_PORT_PROP_NAME = "port";
-        private const string SERVER_ENDPOINT_IP_PROP_NAME = "address";
-        private const string SERVER_CERT_PROP_NAME = "cert";
-        private const string SERVER_PRIV_KEY_PROP_NAME = "privkey";
-        private const string SERVER_SSL_PROP_NAME = "ssl";
-        private const string SERVER_SSL_CREDS_REQUIRED_PROP_NAME = "client_cert_required";
-        private const string SERVER_HOSTNAME_PROP_NAME = "hostname";
-        private const string SERVER_HOSTNAME_ARRAY_PROP_NAME = "hostnames";
-        private const string SERVER_ROOT_PATH_PROP_NAME = "path";
-        private const string SESSION_TIMEOUT_PROP_NAME = "max_execution_time_ms";
-        private const string SERVER_DEFAULT_FILE_PROP_NAME = "default_files";
-        private const string SERVER_DENY_EXTENSIONS_PROP_NAME = "default_files";
-        private const string SERVER_PATH_FILTER_PROP_NAME = "path_filter";
-        private const string SERVER_CORS_ENEABLE_PROP_NAME = "enable_cors";
-        private const string SERVER_CACHE_DEFAULT_PROP_NAME = "cache_default_sec";
-        private const string SERVER_CORS_AUTHORITY_PROP_NAME = "cors_allowed_authority";
-        private const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
-        private const string SERVER_HEADERS_PROP_NAME = "headers";
-        private const string SERVER_WHITELIST_PROP_NAME = "whitelist";
+        internal const string SERVER_ENDPOINT_PROP_NAME = "interface";
+        internal const string SERVER_ENDPOINT_PORT_PROP_NAME = "port";
+        internal const string SERVER_ENDPOINT_IP_PROP_NAME = "address";
+        internal const string SERVER_CERT_PROP_NAME = "cert";
+        internal const string SERVER_PRIV_KEY_PROP_NAME = "privkey";
+        internal const string SERVER_SSL_PROP_NAME = "ssl";
+        internal const string SERVER_SSL_CREDS_REQUIRED_PROP_NAME = "client_cert_required";
+        internal const string SERVER_HOSTNAME_PROP_NAME = "hostname";
+        internal const string SERVER_HOSTNAME_ARRAY_PROP_NAME = "hostnames";
+        internal const string SERVER_ROOT_PATH_PROP_NAME = "path";
+        internal const string SESSION_TIMEOUT_PROP_NAME = "max_execution_time_ms";
+        internal const string SERVER_DEFAULT_FILE_PROP_NAME = "default_files";
+        internal const string SERVER_DENY_EXTENSIONS_PROP_NAME = "default_files";
+        internal const string SERVER_PATH_FILTER_PROP_NAME = "path_filter";
+        internal const string SERVER_CORS_ENEABLE_PROP_NAME = "enable_cors";
+        internal const string SERVER_CACHE_DEFAULT_PROP_NAME = "cache_default_sec";
+        internal const string SERVER_CORS_AUTHORITY_PROP_NAME = "cors_allowed_authority";
+        internal const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
+        internal const string SERVER_HEADERS_PROP_NAME = "headers";
+        internal const string SERVER_WHITELIST_PROP_NAME = "whitelist";
 
-        private const string HTTP_CONF_PROP_NAME = "http";
-        
+        internal const string HTTP_CONF_PROP_NAME = "http";
+
         private const string HTTP_COMPRESSION_PROP_NAME = "compression_lib";
 
-        private const string LOAD_DEFAULT_HOSTNAME_VALUE = "[system]";
+        internal const string LOAD_DEFAULT_HOSTNAME_VALUE = "[system]";
 
         private const string PLUGINS_CONFIG_PROP_NAME = "plugins";
 
@@ -206,22 +206,13 @@ Starting...
             ConfigurePlugins(stack, logger, procArgs, config);
 
             //Build the service stack
-            using HttpServiceStack? serviceStack = stack.Build();
+            using HttpServiceStack serviceStack = stack.Build();
 
-            if (serviceStack == null)
-            {
-                logger.AppLog.Error("Failed to build service stack, no virtual hosts were defined, exiting");
-                return 0;
-            }
-
-            logger.AppLog.Information("Loading plugins...");
-
-            //load plugins
+            //load plugins into stack
             serviceStack.LoadPlugins(logger.AppLog);
 
             logger.AppLog.Information("Starting listeners...");
 
-            //Start servers
             serviceStack.StartServers();
 
             using ManualResetEvent ShutdownEvent = new(false);
@@ -435,20 +426,6 @@ Starting...
             http.WithPluginStack(pluginBuilder.ConfigureStack);
         }
 
-        private const string FOUND_VH_TEMPLATE =
-@"
---------------------------------------------------
- |           Found virtual host:
- | Hostnames: {hn}
- | Directory: {dir}
- | Listening on: {ep}
- | SSL: {ssl}, Client Cert Required: {cc}
- | Whitelist entries: {wl}
- | Downstream servers: {ds}
- | Cors Enabled: {enlb}
- | Allowed Cors Sites: {cors}
---------------------------------------------------";
-
 
         /// <summary>
         /// Loads all server roots from the configuration file
@@ -456,89 +433,93 @@ Starting...
         /// <param name="config">The application configuration to load</param>
         /// <param name="log"></param>
         /// <remarks>A value that indicates if roots we loaded correctly, or false if errors occured and could not be loaded</remarks>
-        private static bool LoadRoots(JsonDocument config, ILogProvider log, IDomainBuilder hosts)
+        private static bool LoadRoots(JsonDocument config, ILogProvider log, IDomainBuilder domain)
         {
+            const string FOUND_VH_TEMPLATE =
+@"
+--------------------------------------------------
+ |           Found virtual host:
+ | Hostnames: {hn}
+ | Directory: {dir}
+ | Interface: {ep}
+ | SSL: {ssl}, Client cert required: {cc}
+ | Whitelist entries: {wl}
+ | Downstream servers: {ds}
+ | CORS Enabled: {enlb}
+ | Allowed CORS sites: {cors}
+ | Cached error files: {ef}
+--------------------------------------------------";
+
             try
             {
                 //execution timeout
                 TimeSpan execTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds);
 
                 //Enumerate all virtual host configurations
-                foreach (JsonElement rootEl in config.RootElement.GetProperty(HOSTS_CONFIG_PROP_NAME).EnumerateArray())
+                foreach (JsonElement vhElement in config.RootElement.GetProperty(HOSTS_CONFIG_PROP_NAME).EnumerateArray())
                 {
                     //Inint config builder
-                    VirtualHostConfigBuilder builder = new(rootEl, execTimeout);
+                    IVirtualHostConfigBuilder builder = new JsonWebConfigBuilder(vhElement, execTimeout, log, DefaultInterface);
 
-                    //Get hostname array
-                    string[] hostNames = builder.GetHostnameList();
+                    //Load the base configuration and hostname list
+                    VirtualHostConfig conf = builder.GetBaseConfig();
+                    string[] hostnames = builder.GetHostnames();
 
-                    //Get the configuration
-                    VirtualHostConfig conf = builder.Build();
+                    //Configure event hooks
+                    conf.EventHooks = new VirtualHostHooks(conf);
 
-                    //Create directory if it doesnt exist yet
+                    //Init middleware stack
+                    conf.CustomMiddleware.Add(new MainServerMiddlware(log, conf));
+                    conf.CustomMiddleware.Add(new SessionSecurityMiddelware(log));
+
+                    /*
+                     * We only enable cors if the configuration has a value for the allow cors property.
+                     * The user may disable cors totally, deny cors requests, or enable cors with a whitelist
+                     * 
+                     * Only add the middleware if the confg has a value for the allow cors property
+                     */
+                    if (conf.AllowCors.HasValue)
+                    {
+                        conf.CustomMiddleware.Add(new CORSMiddleware(log, conf));
+                    }
+
+                    //Add whitelist middleware if the configuration has a whitelist
+                    if (conf.WhiteList != null)
+                    {
+                        conf.CustomMiddleware.Add(new WhitelistMiddleware(log, conf.WhiteList));
+                    }
+
                     if (!conf.RootDir.Exists)
                     {
                         conf.RootDir.Create();
                     }
 
-                    VirtualHostHooks hooks = new(conf);
-
-                    //Init middleware stack
-                    MainServerMiddlware main = new(log, conf);
-                    SessionSecurityMiddelware sess = new(log);                    
-
-                    //Create a new vritual host for every hostname using the same configuration
-                    foreach(string hostName in hostNames)
+                    //Get all virtual hosts configurations and add them to the domain
+                    foreach (string hostname in hostnames)
                     {
-                        //Substitute the dns hostname variable
-                        string hn = hostName.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName(), StringComparison.OrdinalIgnoreCase);
-
-                        //Configure new virtual host for each hostname
-                       IVirtualHostBuilder vh = hosts.WithVirtualHost(conf.RootDir, hooks, log)
-                            .WithHostname(hn)
-                            .WithEndpoint(conf.TransportEndpoint)
-                            .WithTlsCertificate(conf.Certificate)
-                            .WithDefaultFiles(conf.DefaultFiles)
-                            .WithExcludedExtensions(conf.ExcludedExtensions)
-                            .WithAllowedAttributes(conf.AllowedAttributes)
-                            .WithDisallowedAttributes(conf.DissallowedAttributes)
-                            .WithDownstreamServers(conf.DownStreamServers)
-                            .WithOption(p => p.ExecutionTimeout = conf.ExecutionTimeout)
-
-                            //Add custom middleware
-                            .WithMiddleware(main, sess);
-
-                        /*
-                         * We only enable cors if the configuration has a value for the allow cors property.
-                         * The user may disable cors totally, deny cors requests, or enable cors with a whitelist
-                         * 
-                         * Only add the middleware if the confg has a value for the allow cors property
-                         */
-                        if (conf.AllowCors != null)
-                        {
-                            vh.WithMiddleware(new CORSMiddleware(log, conf));
-                        }
-
-                        //Add whitelist middleware if the configuration has a whitelist
-                        if(conf.WhiteList != null)
-                        {
-                            vh.WithMiddleware(new WhitelistMiddleware(log, conf.WhiteList));
-                        }
+                        VirtualHostConfig clone = conf.Clone();                      
+                        clone.Hostname = hostname.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName(), StringComparison.OrdinalIgnoreCase);
+                        //Add each config with new hostname to the domain
+                        domain.WithVirtualHost(clone);
                     }
 
-                    //Log the 
-                    log.Information(
-                        FOUND_VH_TEMPLATE,
-                        hostNames,
-                        conf.RootDir.FullName,
-                        conf.TransportEndpoint,
-                        conf.Certificate != null,
-                        conf.Certificate.IsClientCertRequired(),
-                        conf.WhiteList?.ToArray(),
-                        conf.DownStreamServers?.ToArray(),
-                        conf.AllowCors,
-                        conf.AllowedCorsAuthority
-                    );
+                    //print found host to log
+                    {
+                        //Log the 
+                        log.Information(
+                            FOUND_VH_TEMPLATE,
+                            hostnames,
+                            conf.RootDir.FullName,
+                            conf.TransportEndpoint,
+                            conf.Certificate != null,
+                            conf.Certificate.IsClientCertRequired(),
+                            conf.WhiteList?.ToArray(),
+                            conf.DownStreamServers?.ToArray(),
+                            conf.AllowCors,
+                            conf.AllowedCorsAuthority,
+                            conf.FailureFiles.Select(p => (int)p.Key).ToArray()
+                        );
+                    }
                 }
                 return true;
             }
@@ -552,7 +533,7 @@ Starting...
             }
             catch(Exception ex)
             {
-                log.Error(ex);
+                log.Error(ex, "Failed to initialize virtual hosts");
             }
             return false;
         }
@@ -903,5 +884,22 @@ Starting...
         }
 
         private static void CollectCache(this HttpServiceStack controller) => controller.Servers.TryForeach(static server => (server as HttpServer)!.CacheClear());
+
+        private sealed class CertState
+        {
+            public bool CertRequired { get; set; }
+        }
+
+        private static readonly ConditionalWeakTable<X509Certificate, CertState> _cerProperties = new();
+
+        public static bool IsClientCertRequired(this X509Certificate? cert)
+        {
+            return cert != null && _cerProperties.GetOrCreateValue(cert).CertRequired;
+        }
+
+        public static bool IsClientCertRequired(this X509Certificate cert, bool value)
+        {
+            return _cerProperties.GetOrCreateValue(cert).CertRequired = value;
+        }
     }
 }

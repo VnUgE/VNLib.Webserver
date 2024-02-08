@@ -25,6 +25,7 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
@@ -67,7 +68,7 @@ namespace VNLib.WebServer
         /// <summary>
         /// An optional whitelist set of ipaddresses that are allowed to make connections to this site
         /// </summary>
-        public IReadOnlySet<IPAddress>? WhiteList { get; init; }
+        public FrozenSet<IPAddress>? WhiteList { get; init; }
        
         /// <summary>
         /// The default response entity cache value
@@ -78,13 +79,13 @@ namespace VNLib.WebServer
         /// A collection of allowed cors sites, otherwise defaults to the 
         /// connections supplied origin authority
         /// </summary>
-        public IReadOnlySet<string>? AllowedCorsAuthority { get; init; }
+        public FrozenSet<string>? AllowedCorsAuthority { get; init; }
 
         /// <summary>
         /// A collection of in-memory files to send in response to processing error
         /// codes.
         /// </summary>
-        public IReadOnlyDictionary<HttpStatusCode, FailureFile> FailureFiles { get; init; } = new Dictionary<HttpStatusCode, FailureFile>();
+        public FrozenDictionary<HttpStatusCode, FileCache> FailureFiles { get; init; } = new Dictionary<HttpStatusCode, FileCache>().ToFrozenDictionary();
 
         /// <summary>
         /// Allows config to specify contant additional headers
@@ -94,6 +95,12 @@ namespace VNLib.WebServer
         /// <summary>
         /// Contains internal headers used for specific purposes, cherrypicked from the config headers 
         /// </summary>
-        public IReadOnlyDictionary<string, string> SpecialHeaders { get; init; } = new Dictionary<string, string>();
+        public FrozenDictionary<string, string> SpecialHeaders { get; init; } = new Dictionary<string, string>().ToFrozenDictionary();
+
+        /// <summary>
+        /// Creaets a new instance of <see cref="VirtualHostConfig"/> with the same values as the current instance
+        /// </summary>
+        /// <returns></returns>
+        public VirtualHostConfig Clone() => (VirtualHostConfig)MemberwiseClone();
     }
 }

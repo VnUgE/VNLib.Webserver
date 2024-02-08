@@ -3,9 +3,9 @@
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
-* File: FailureFile.cs 
+* File: FileCache.cs 
 *
-* FailureFile.cs is part of VNLib.WebServer which is part of the larger 
+* FileCache.cs is part of VNLib.WebServer which is part of the larger 
 * VNLib collection of libraries and utilities.
 *
 * VNLib.WebServer is free software: you can redistribute it and/or modify 
@@ -27,6 +27,7 @@ using System.IO;
 using System.Net;
 
 using VNLib.Net.Http;
+using VNLib.Utils;
 using VNLib.Utils.IO;
 
 namespace VNLib.WebServer
@@ -34,37 +35,31 @@ namespace VNLib.WebServer
     /// <summary>
     /// File the server will keep in memory and return to user when a specified error code is requested
     /// </summary>
-    internal class FailureFile : InMemoryTemplate
+    internal class FileCache : VnDisposeable, IFSChangeHandler
     {
+        private readonly string _filePath;
+
         public readonly HttpStatusCode Code;
 
         private Lazy<byte[]> _templateData;
-
-        public override string TemplateName { get; }       
+           
 
         /// <summary>
         /// Catch an http error code and return the selected file to user
         /// </summary>
         /// <param name="code">Http status code to catch</param>
         /// <param name="filePath">Path to file contating data to return to use on status code</param>
-        public FailureFile(HttpStatusCode code, string filePath):base(filePath, true)
+        private FileCache(HttpStatusCode code, string filePath)
         {
             Code = code;
-            _templateData = new(LoadTemplateData);
-            TemplateName = filePath;
-        }
-        
-        //Nothing needs to changed when the file is modified
-        protected override void OnModifed()
-        {
-            //Update lazy loader for new file update
+            _filePath = filePath;
             _templateData = new(LoadTemplateData);
         }
 
         private byte[] LoadTemplateData()
         {
             //Get file data as binary
-            return File.ReadAllBytes(TemplateFile.FullName);
+            return File.ReadAllBytes(_filePath);
         }
 
         /// <summary>
@@ -73,6 +68,42 @@ namespace VNLib.WebServer
         /// </summary>
         /// <returns>The <see cref="IMemoryResponseReader"/> wrapper around the file data</returns>
         public IMemoryResponseReader GetReader() => new MemReader(_templateData.Value);
+
+
+        void IFSChangeHandler.OnFileChanged(FileSystemEventArgs e)
+        {
+            //Update lazy loader for new file update
+            _templateData = new(LoadTemplateData);
+        }
+
+        protected override void Free()
+        {
+            //Unsubscribe from file watcher
+            FileWatcher.Unsubscribe(_filePath, this);
+        }
+
+        /// <summary>
+        /// Create a new file cache for a specific error code
+        /// and begins listening for changes to the file
+        /// </summary>
+        /// <param name="code">The status code to produce the file for</param>
+        /// <param name="filePath">The path to the file to read</param>
+        /// <returns>The new <see cref="FileCache"/> instance if the file exists and is readable, null otherwise</returns>
+        public static FileCache? Create(HttpStatusCode code, string filePath)
+        {
+            //If the file does not exist, return null
+            if(!FileOperations.FileExists(filePath))
+            {
+                return null;
+            }
+
+            FileCache ff = new(code, filePath);
+
+            //Subscribe to file changes
+            FileWatcher.Subscribe(filePath, ff);
+
+            return ff;
+        }
 
         private sealed class MemReader : IMemoryResponseReader
         {

@@ -44,7 +44,8 @@ namespace VNLib.WebServer.Middlewares
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {
-            entity.Server.Headers[HttpResponseHeader.Server] = "VNLib.Http/1.1";
+            //Set special server header
+            VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.Server);
 
             //Block websocket requests
             if (entity.Server.IsWebSocketRequest)

@@ -24,7 +24,7 @@
 
 using System.Net;
 using System.Threading.Tasks;
-using System.Collections.Generic;
+using System.Collections.Frozen;
 
 using VNLib.Utils.Logging;
 using VNLib.Plugins.Essentials;
@@ -37,7 +37,7 @@ namespace VNLib.WebServer.Middlewares
      * and blocks them if they are not on the list
      */
     [MiddlewareImpl(MiddlewareImplOptions.SecurityCritical)]
-    internal sealed class WhitelistMiddleware(ILogProvider Log, IReadOnlySet<IPAddress> WhiteList) : IHttpMiddleware
+    internal sealed class WhitelistMiddleware(ILogProvider Log, FrozenSet<IPAddress> WhiteList) : IHttpMiddleware
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {

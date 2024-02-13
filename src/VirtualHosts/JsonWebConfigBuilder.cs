@@ -288,7 +288,7 @@ namespace VNLib.WebServer
             return new Dictionary<HttpStatusCode, FileCache>().ToFrozenDictionary();
         }
 
-        private IReadOnlySet<IPAddress> GetDownStreamServers()
+        private FrozenSet<IPAddress> GetDownStreamServers()
         {
             //Find downstream servers
             HashSet<IPAddress>? downstreamServers = null;
@@ -303,7 +303,7 @@ namespace VNLib.WebServer
                     .ToHashSet();
             }
 
-            return downstreamServers ?? new();
+            return (downstreamServers ?? []).ToFrozenSet();
         }
 
         private FrozenSet<IPAddress>? GetWhitelist()

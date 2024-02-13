@@ -34,43 +34,25 @@ namespace VNLib.WebServer.Plugins
     internal sealed record class PluginAssemblyLoader(IPluginAssemblyLoadConfig Config) : IAssemblyLoader
     {
 
-        private PluginLoader? _loader;
+        private readonly PluginLoader _loader = new(new(Config.AssemblyFile) { 
+            PreferSharedTypes = true, 
+            IsUnloadable = Config.Unloadable, 
+            LoadInMemory = Config.Unloadable 
+        });
 
         ///<inheritdoc/>
-        public Assembly GetAssembly()
-        {
-            _ = _loader ?? throw new InvalidOperationException("The assembly loader was not loaded yet, you must call the Load method before you can call this method");
-            return _loader.LoadDefaultAssembly();
-        }
+        public Assembly GetAssembly() => _loader.LoadDefaultAssembly();
 
         ///<inheritdoc/>
-        public void Load()
-        {
-            PluginConfig pc = new(Config.AssemblyFile)
-            {
-                //Shared types are required to pass data between the plugin and the host
-                PreferSharedTypes = true,
-
-                //The plugin framework will handle hot-reloading
-                EnableHotReload = false,
-
-                //Specify unloading flag 
-                IsUnloadable = Config.Unloadable,
-                LoadInMemory = Config.Unloadable
-            };
-
-            //Init a new loader if the old loader has been cleaned up, otherwise do nothing
-            _loader ??= new(pc);
-        }
+        public void Load() => _loader.Load();
 
         ///<inheritdoc/>
         public void Unload()
         {
             if (Config.Unloadable)
             {
-                //Cleanup old loader
-                _loader?.Dispose();
-                _loader = null;
+                //Cleanup old loader, dont invoke GC because runtime will handle it
+                _loader.Destroy(false);
             }
         }
 

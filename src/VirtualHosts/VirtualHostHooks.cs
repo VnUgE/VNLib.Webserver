@@ -38,29 +38,18 @@ using VNLib.Plugins.Essentials.ServiceStack.Construction;
 namespace VNLib.WebServer
 {
 
-    internal sealed class VirtualHostHooks: IVirtualHostHooks
+    internal sealed class VirtualHostHooks(VirtualHostConfig config) : IVirtualHostHooks
     {
         private const int FILE_PATH_BUILDER_BUFFER_SIZE = 4096;
 
         private static readonly string CultreInfo = CultureInfo.InstalledUICulture.Name;
      
-        private readonly string DefaultCacheString;
-
-        public VirtualHostConfig VirtualHostOptions { get; }
-
-
-        public VirtualHostHooks(VirtualHostConfig config)
-        {
-            VirtualHostOptions = config;
-
-            //Inint default cache string
-            DefaultCacheString = HttpHelpers.GetCacheString(CacheType.Public, (int)config.CacheDefault.TotalSeconds);
-        }
+        private readonly string DefaultCacheString = HttpHelpers.GetCacheString(CacheType.Public, (int)config.CacheDefault.TotalSeconds);
 
         public bool ErrorHandler(HttpStatusCode errorCode, IHttpEvent ev)
         {
             //Make sure the connection accepts html
-            if (ev.Server.Accepts(ContentType.Html) && VirtualHostOptions.FailureFiles.TryGetValue(errorCode, out FailureFile? ff))
+            if (ev.Server.Accepts(ContentType.Html) && config.FailureFiles.TryGetValue(errorCode, out FileCache? ff))
             {
                 ev.Server.SetNoCache();
                 ev.CloseResponse(errorCode, ContentType.Html, ff.GetReader());
@@ -73,13 +62,13 @@ namespace VNLib.WebServer
         public string TranslateResourcePath(string requestPath)
         {
             //Filter the path using the supplied regex
-            requestPath = VirtualHostOptions.PathFilter?.Replace(requestPath, string.Empty) ?? requestPath;
+            requestPath = config.PathFilter?.Replace(requestPath, string.Empty) ?? requestPath;
             //Alloc temp buffer from the shared heap, 
             using UnsafeMemoryHandle<char> charBuffer = MemoryUtil.UnsafeAlloc<char>(FILE_PATH_BUILDER_BUFFER_SIZE);
             //Buffer writer
             ForwardOnlyWriter<char> sb = new(charBuffer.Span);
             //Start with the root filename
-            sb.Append(VirtualHostOptions.RootDir.FullName);
+            sb.Append(config.RootDir.FullName);
             //Supply a "leading" dir separator character 
             if (requestPath[0] != '/')
             {
@@ -121,7 +110,7 @@ namespace VNLib.WebServer
             }
 
             //Get-set the x-content options headers from the client config
-            VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.XContentOption);
+            config.TrySetSpecialHeader(entity.Server, SpecialHeaders.XContentOption);
 
             //Get the re-written url or 
             ReadOnlySpan<char> ext;
@@ -179,8 +168,8 @@ namespace VNLib.WebServer
             if (ext.IsEmpty || ext.Equals(".html", StringComparison.OrdinalIgnoreCase))
             {
                 //Get/set xss protection header
-                VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.XssProtection);
-                VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.ContentSecPolicy);
+                config.TrySetSpecialHeader(entity.Server, SpecialHeaders.XssProtection);
+                config.TrySetSpecialHeader(entity.Server, SpecialHeaders.ContentSecPolicy);
             }
 
             //Set language of the server's os if the user code did not set it

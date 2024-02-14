@@ -40,11 +40,12 @@ namespace VNLib.WebServer.Middlewares
     /// </summary>
     /// <param name="Log"></param>
     /// <param name="VirtualHostOptions"></param>
-    internal sealed record class MainServerMiddlware(ILogProvider Log, VirtualHostConfig VirtualHostOptions) : IHttpMiddleware
+    internal sealed class MainServerMiddlware(ILogProvider Log, VirtualHostConfig VirtualHostOptions) : IHttpMiddleware
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {
-            entity.Server.Headers[HttpResponseHeader.Server] = "VNLib.Http/1.1";
+            //Set special server header
+            VirtualHostOptions.TrySetSpecialHeader(entity.Server, SpecialHeaders.Server);
 
             //Block websocket requests
             if (entity.Server.IsWebSocketRequest)

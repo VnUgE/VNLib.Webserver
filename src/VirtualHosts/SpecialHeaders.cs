@@ -37,16 +37,18 @@ namespace VNLib.WebServer
         public const string XssProtection = "X-XSS-Protection";
         public const string XContentOption = "X-Content-Type-Options";
         public const string Hsts = "Strict-Transport-Security";
+        public const string Server = "Server";
 
         /// <summary>
         /// An array of the special headers to quickly compare against
         /// </summary>
-        public static string[] SpecialHeader = new string[4]
+        public static string[] SpecialHeader =
         {
             ContentSecPolicy,
             XssProtection,
             XContentOption,
-            Hsts
+            Hsts,
+            Server
         };
 
         /// <summary>

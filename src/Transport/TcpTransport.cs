@@ -94,7 +94,7 @@ namespace VNLib.WebServer.Transport
         /// <summary>
         /// A TCP server transport provider class
         /// </summary>
-        private record class TcpTransportProvider(TcpServer Server) : ITransportProvider
+        private class TcpTransportProvider(TcpServer Server) : ITransportProvider
         {
             ///<inheritdoc/>
             void ITransportProvider.Start(CancellationToken stopToken)
@@ -113,7 +113,7 @@ namespace VNLib.WebServer.Transport
             }
         }
 
-        private sealed record class SslTcpTransportProvider(TcpServer Server, SslServerAuthenticationOptions AuthOptions) : TcpTransportProvider(Server)
+        private sealed class SslTcpTransportProvider(TcpServer Server, SslServerAuthenticationOptions AuthOptions) : TcpTransportProvider(Server)
         {
             public override async ValueTask<ITransportContext> AcceptAsync(CancellationToken cancellation)
             {
@@ -131,7 +131,7 @@ namespace VNLib.WebServer.Transport
                 }
                 catch
                 {
-                    await Server.CloseConnectionAsync(descriptor);
+                    await Server.CloseConnectionAsync(descriptor, true);
                     await stream.DisposeAsync();
                     throw;
                 }

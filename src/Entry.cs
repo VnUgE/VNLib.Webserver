@@ -755,14 +755,27 @@ Starting...
                                 break;
                             }
 
-                            string message = string.Join(' ', s);
+                            string message = string.Join(' ', s[2..]);
 
-                            bool sent = serviceStack.PluginManager.SendCommandToPlugin(s[1], message);
+                            bool sent = serviceStack.PluginManager.SendCommandToPlugin(s[1], message, StringComparison.OrdinalIgnoreCase);
 
                             if (!sent)
                             {
                                 Console.WriteLine("Plugin not found");
                             }
+                        }
+                        break;
+
+                    case "cmd":
+                        {
+                            if (s.Length < 2)
+                            {
+                                Console.WriteLine("Plugin name is required");
+                                break;
+                            }
+
+                            //Enter plugin command loop
+                            EnterPluginLoop(s[1], serviceStack.PluginManager);
                         }
                         break;
                     case "reload":
@@ -880,6 +893,38 @@ Starting...
                 {
                     log.Verbose("Domain {domain} unloaded", currentDomain.FriendlyName);
                 };
+            }
+        }
+
+        private static void EnterPluginLoop(string pluignName, IHttpPluginManager man)
+        {
+            Console.WriteLine("Entering plugin {0}. Type 'exit' to leave", pluignName);
+
+            while (true)
+            {
+                Console.Write("{0}>", pluignName);
+
+                string? input = Console.ReadLine();
+
+                if(string.IsNullOrWhiteSpace(input))
+                {
+                    Console.WriteLine("Please enter a command or type 'exit' to leave");
+                    continue;
+                }
+
+                input = input.Trim().ToLower(null);
+
+                if(input == "exit")
+                {
+                    break;
+                }
+
+                //Exec command
+                if(!man.SendCommandToPlugin(pluignName, input, StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("Plugin does not exist exiting loop");
+                    break;
+                }
             }
         }
 

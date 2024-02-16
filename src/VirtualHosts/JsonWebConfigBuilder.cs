@@ -182,18 +182,25 @@ namespace VNLib.WebServer
             }
 
             X509Certificate? cert = null;
-
-            //Get certificate file path
             string certFileName = certPath.GetString()!;
 
-            //If the file is a pem file, load with/without password 
-            if (Path.GetExtension(certFileName).EndsWith("pem", StringComparison.OrdinalIgnoreCase))
+            /*
+             * Default to use a PEM encoded certificate and private key file. Unless the file
+             * is a pfx file, then we will use the private key from the pfx file.
+             */
+
+            if (Path.GetExtension(certFileName).EndsWith("pfx", StringComparison.OrdinalIgnoreCase))
+            {
+                //Create from pfx file including private key
+                cert = X509Certificate.CreateFromCertFile(certFileName);
+            }
+            else
             {
                 //Private key pem file
                 string privateKeyFile = sslConfEl.GetPropString(SERVER_PRIV_KEY_PROP_NAME) ?? throw new KeyNotFoundException("You must specify a private key file");
 
                 //try to get a certificate password
-                using PrivateString? password = (PrivateString?)sslConfEl.GetPropString("password");
+                using PrivateString? password = PrivateString.ToPrivateString(sslConfEl.GetPropString("password"), true);
 
                 //Load the cert and decrypt with password if set
                 using X509Certificate2 cert2 = password == null ? X509Certificate2.CreateFromPemFile(certFileName, privateKeyFile)
@@ -212,12 +219,6 @@ namespace VNLib.WebServer
                 cert = new X509Certificate2(pkcs);
                 MemoryUtil.InitializeBlock(pkcs);
             }
-            else
-            {
-                //Create from pfx file including private key
-                cert = X509Certificate.CreateFromCertFile(certFileName);
-            }
-
             return cert;
         }
 

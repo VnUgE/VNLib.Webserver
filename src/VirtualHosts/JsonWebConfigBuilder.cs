@@ -183,7 +183,7 @@ namespace VNLib.WebServer
 
             X509Certificate? cert = null;
             string certFileName = certPath.GetString()!;
-            
+
             /*
              * Default to use a PEM encoded certificate and private key file. Unless the file
              * is a pfx file, then we will use the private key from the pfx file.
@@ -219,7 +219,6 @@ namespace VNLib.WebServer
                 cert = new X509Certificate2(pkcs);
                 MemoryUtil.InitializeBlock(pkcs);
             }
-
             return cert;
         }
 

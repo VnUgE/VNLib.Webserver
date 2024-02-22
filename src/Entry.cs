@@ -912,9 +912,7 @@ Starting...
                     continue;
                 }
 
-                input = input.Trim().ToLower(null);
-
-                if(input == "exit")
+                if(input.AsSpan().Trim().Equals("exit", StringComparison.OrdinalIgnoreCase))
                 {
                     break;
                 }

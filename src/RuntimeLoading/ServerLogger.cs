@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2022 Vaughn Nugent
+* Copyright (c) 2024 Vaughn Nugent
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
@@ -26,21 +26,14 @@ using VNLib.Utils;
 
 namespace VNLib.WebServer.RuntimeLoading
 {
-    internal class ServerLogger : VnDisposeable
+    internal sealed class ServerLogger(VLogProvider applog, VLogProvider syslog, VLogProvider? debuglog) : VnDisposeable
     {
 
-        public VLogProvider AppLog { get; }
+        public VLogProvider AppLog { get; } = applog;
 
-        public VLogProvider SysLog { get; }
+        public VLogProvider SysLog { get; } = syslog;
 
-        public VLogProvider? DebugLog { get; }
-
-        public ServerLogger(VLogProvider applog, VLogProvider syslog, VLogProvider? debuglog)
-        {
-            AppLog = applog;
-            SysLog = syslog;
-            DebugLog = debuglog;
-        }
+        public VLogProvider? DebugLog { get; } = debuglog;
 
         protected override void Free()
         {

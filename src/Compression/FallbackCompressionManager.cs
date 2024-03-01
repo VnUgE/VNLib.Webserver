@@ -28,7 +28,6 @@ using System.Diagnostics;
 using System.IO.Compression;
 
 using VNLib.Net.Http;
-using VNLib.Utils.Memory;
 
 namespace VNLib.WebServer.Compression
 {
@@ -57,7 +56,6 @@ namespace VNLib.WebServer.Compression
 
             //Init new brotli encoder struct
             encoder = new(9, 24);
-            compressor.LastBlockWritten = false;    //Clear flag before reusing
             return 0;
         }
 
@@ -101,7 +99,6 @@ namespace VNLib.WebServer.Compression
         public int Flush(object compressorState, Memory<byte> output)
         {
             OperationStatus status;
-            int bytesWritten;
 
             //Output buffer should never be empty, server guards this
             Debug.Assert(!output.IsEmpty, "Exepcted a non-zero length output buffer");
@@ -109,38 +106,25 @@ namespace VNLib.WebServer.Compression
             BrCompressorState compressor = (BrCompressorState)compressorState;
             ref BrotliEncoder encoder = ref compressor.GetEncoder();
 
-            ForwardOnlyWriter<byte> writer = new(output.Span);
+            /*
+             * A call to compress with the isFinalBlock flag set to true will
+             * cause a BROTLI_OPERATION_FINISH operation to be performed. This is 
+             * actually the proper way to complete a brotli compression stream.
+             * 
+             * See vnlib_compress project for more details.
+             */
+            status = encoder.Compress(default, output.Span, out _, out int bytesWritten, true);
 
-            if (!compressor.LastBlockWritten)
-            {
-                //Compress nothing with the the final block flag set
-                status = encoder.Compress(default, writer.Remaining, out _, out bytesWritten, true);
-
-                /*
-                 * Should always return done, because the output buffer is always 
-                 * large enough and that data/state cannot be invalid
-                 */
-                Debug.Assert(status == OperationStatus.Done);
-                writer.Advance(bytesWritten);
-
-                //Mark the last block as written
-                compressor.LastBlockWritten = true;
-
-                //May not have any space left after the last block
-                if(writer.Remaining.IsEmpty)
-                {
-                    return writer.Written;
-                }
-            }
-
-            //Flush remaining data
-            status = encoder.Flush(output.Span, out bytesWritten);
-            Debug.Assert(status == OperationStatus.Done);
-
-            writer.Advance(bytesWritten);
+            /*
+             * Function can return Done or DestinationTooSmall if there is still more data
+             * stored in the compressor to be written. If InvaliData is returned, then there 
+             * is a problem with the encoder state or the output buffer, this condition should
+             * never happen.
+             */
+            Debug.Assert(status != OperationStatus.InvalidData, $"Failed with status {status}, written {bytesWritten}, buffer size {output.Length}");
 
             //Return the number of bytes actually accumulated
-            return writer.Written;
+            return bytesWritten;
         }
        
 
@@ -149,12 +133,6 @@ namespace VNLib.WebServer.Compression
             private BrotliEncoder _encoder;
 
             public ref BrotliEncoder GetEncoder() => ref _encoder;
-
-            /// <summary>
-            /// Tracks if the last block has been written during 
-            /// a flush phase
-            /// </summary>
-            public bool LastBlockWritten;
         }
     }
 }

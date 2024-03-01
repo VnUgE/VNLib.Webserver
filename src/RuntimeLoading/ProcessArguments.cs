@@ -28,7 +28,7 @@ using VNLib.Utils;
 
 namespace VNLib.WebServer.RuntimeLoading
 {
-    internal class ProcessArguments : ArgumentList
+    internal sealed class ProcessArguments : ArgumentList
     {
         public ProcessArguments(string[] args) : base(args)
         { }

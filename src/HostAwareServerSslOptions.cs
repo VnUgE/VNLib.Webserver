@@ -47,8 +47,6 @@ namespace VNLib.WebServer
         private readonly HashSet<string> _certRequiredHosts;
         private readonly X509Certificate? _defaultCert;
 
-        public readonly bool ClientCertRequired;
-
         public HostAwareServerSslOptions(IReadOnlyCollection<IServiceHost> hosts, bool doNotForceTlsProtocols)
         {
             ArgumentNullException.ThrowIfNull(hosts, nameof(hosts));

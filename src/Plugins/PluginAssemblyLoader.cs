@@ -23,39 +23,103 @@
 */
 
 using System;
+using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.Loader;
 
+#if USE_MCMASTER
 using McMaster.NETCore.Plugins;
+#endif
 
 using VNLib.Plugins.Runtime;
+using VNLib.Utils.Resources;
 
 namespace VNLib.WebServer.Plugins
 {
-    internal sealed record class PluginAssemblyLoader(IPluginAssemblyLoadConfig Config) : IAssemblyLoader
+
+    internal static class PluginAsemblyLoading
     {
-
-        private readonly PluginLoader _loader = new(new(Config.AssemblyFile) { 
-            PreferSharedTypes = true, 
-            IsUnloadable = Config.Unloadable, 
-            LoadInMemory = Config.Unloadable 
-        });
-
-        ///<inheritdoc/>
-        public Assembly GetAssembly() => _loader.LoadDefaultAssembly();
-
-        ///<inheritdoc/>
-        public void Load() => _loader.Load();
-
-        ///<inheritdoc/>
-        public void Unload()
+        public static IAssemblyLoader Create(IPluginAssemblyLoadConfig config)
         {
-            if (Config.Unloadable)
-            {
-                //Cleanup old loader, dont invoke GC because runtime will handle it
-                _loader.Destroy(false);
-            }
+            return config.Unloadable ? new UnloadableAlc(config) : new ImmutableAl(config);
         }
 
-        public void Dispose() => Unload();
+        //Immutable assembly loader
+        internal sealed record class ImmutableAl(IPluginAssemblyLoadConfig Config) : IAssemblyLoader
+        {
+            private readonly AssemblyLoadContext ctx = new(Config.AssemblyFile, Config.Unloadable);
+            private ManagedLibrary ml = null!;
+         
+            ///<inheritdoc/>
+            public Assembly GetAssembly() => ml.Assembly;
+
+            ///<inheritdoc/>
+            public void Load() => ml = ManagedLibrary.LoadManagedAssembly(Config.AssemblyFile, ctx);
+
+            ///<inheritdoc/>
+            public void Unload() => Debug.Fail("Unload was called on an immutable assembly loader");
+
+            public void Dispose() { }
+        }
+
+        internal sealed record class UnloadableAlc(IPluginAssemblyLoadConfig Config) : IAssemblyLoader
+        {
+
+#if USE_MCMASTER
+            private readonly PluginLoader _loader = new(new(Config.AssemblyFile)
+            {
+                PreferSharedTypes = true,
+                IsUnloadable = Config.Unloadable,
+                LoadInMemory = Config.Unloadable
+            });
+
+            ///<inheritdoc/>
+            public Assembly GetAssembly() => _loader.LoadDefaultAssembly();
+
+            ///<inheritdoc/>
+            public void Load() => _loader.Load();
+
+            ///<inheritdoc/>
+            public void Unload()
+            {
+                if (Config.Unloadable)
+                {
+                    //Cleanup old loader, dont invoke GC because runtime will handle it
+                    _loader.Destroy(false);
+                    //ctx.Unload();
+                    //ml = null!;
+
+                    //Init new load context with the same name
+                    //ctx = new AssemblyLoadContext(Config.AssemblyFile, Config.Unloadable);
+                }
+            }
+
+            public void Dispose() => Unload();
+#else
+
+            private AssemblyLoadContext ctx = null!;
+            private ManagedLibrary ml = null!;
+
+            public void Dispose() => Unload();
+
+            public Assembly GetAssembly() => ml.Assembly;            
+
+            public void Load()
+            {
+                Debug.Assert(Config.Unloadable, "Assumed unloadable context when using UnloadableAlc");
+
+                //A new load context is created for each load
+                ctx = new(Config.AssemblyFile, Config.Unloadable);
+                ml = ManagedLibrary.LoadManagedAssembly(Config.AssemblyFile, ctx);
+            }
+
+            public void Unload()
+            {
+                ctx.Unload();
+                ml = null!;
+            }
+#endif
+
+        }
     }
 }

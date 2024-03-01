@@ -35,7 +35,7 @@ namespace VNLib.WebServer
     /// <summary>
     /// File the server will keep in memory and return to user when a specified error code is requested
     /// </summary>
-    internal class FileCache : VnDisposeable, IFSChangeHandler
+    internal sealed class FileCache : VnDisposeable, IFSChangeHandler
     {
         private readonly string _filePath;
 

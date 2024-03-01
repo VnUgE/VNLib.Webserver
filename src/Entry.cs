@@ -31,6 +31,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Reflection;
+using System.Net.Sockets;
 using System.Net.Security;
 using System.Runtime.Loader;
 using System.Collections.Generic;
@@ -172,7 +173,7 @@ Starting...
             //Setup the app-domain listener
             InitAppDomainListener(procArgs, logger.AppLog);
 
-#if DEBUG
+#if !DEBUG
             if (procArgs.LogHttp)
             {
                 logger.AppLog.Warn("HTTP Logging is only enabled in builds compiled with DEBUG symbols");
@@ -213,7 +214,15 @@ Starting...
 
             logger.AppLog.Information("Starting listeners...");
 
-            serviceStack.StartServers();
+            try
+            {
+                serviceStack.StartServers();
+            }
+            catch (SocketException se) when(se.SocketErrorCode == SocketError.AddressAlreadyInUse)
+            {
+                logger.AppLog.Fatal("Failed to start server, address already in use");
+                return -1;
+            }
 
             using ManualResetEvent ShutdownEvent = new(false);
 
@@ -383,7 +392,7 @@ Starting...
             PluginStackBuilder pluginBuilder = PluginStackBuilder.Create()
                                     .WithDebugLog(logger.AppLog)
                                     .WithSearchDirectory(pluginDir)
-                                    .WithLoaderFactory(pc => new PluginAssemblyLoader(pc));
+                                    .WithLoaderFactory(PluginAsemblyLoading.Create);
 
             //Setup plugin config data
             if(string.IsNullOrWhiteSpace(altPluginConfigDir))

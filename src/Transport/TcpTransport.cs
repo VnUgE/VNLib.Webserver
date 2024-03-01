@@ -26,9 +26,11 @@ using System.Threading;
 using System.IO.Pipelines;
 using System.Net.Security;
 using System.Threading.Tasks;
+using System.Security.Authentication;
 
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
+using VNLib.Utils.Logging;
 
 
 namespace VNLib.WebServer.Transport
@@ -44,7 +46,7 @@ namespace VNLib.WebServer.Transport
         /// <param name="config">The server configuration</param>
         /// <param name="inlineScheduler">Use the inline pipeline scheduler</param>
         /// <returns>The configured <see cref="ITransportProvider"/></returns>
-        public static ITransportProvider CreateServer(in TCPConfig config, bool inlineScheduler)
+        public static ITransportProvider CreateServer(ref readonly TCPConfig config, bool inlineScheduler)
         {
             //Create tcp server
             TcpServer server = new (config, CreateCustomPipeOptions(in config, inlineScheduler));
@@ -78,11 +80,11 @@ namespace VNLib.WebServer.Transport
             return new SslTcpTransportProvider(server, ssl);
         }
 
-        private static PipeOptions CreateCustomPipeOptions(in TCPConfig config, bool inlineScheduler)
+        private static PipeOptions CreateCustomPipeOptions(ref readonly TCPConfig config, bool inlineScheduler)
         {
             return new PipeOptions(
                 config.BufferPool,
-                //Noticable performance increase when using inline scheduler for reader (hanles send operations)
+                //Noticable performance increase when using inline scheduler for reader (handles send operations)
                 readerScheduler: inlineScheduler ? PipeScheduler.Inline : PipeScheduler.ThreadPool,
                 writerScheduler: inlineScheduler ? PipeScheduler.Inline : PipeScheduler.ThreadPool,
                 pauseWriterThreshold: config.MaxRecvBufferData,
@@ -115,26 +117,54 @@ namespace VNLib.WebServer.Transport
 
         private sealed class SslTcpTransportProvider(TcpServer Server, SslServerAuthenticationOptions AuthOptions) : TcpTransportProvider(Server)
         {
+            /*
+              * An SslStream may throw a win32 exception with HRESULT 0x80090327
+              * when processing a client certificate (I believe anyway) only 
+              * an issue on some clients (browsers)
+              */
+
+            private const int UKNOWN_CERT_AUTH_HRESULT = unchecked((int)0x80090327);
+
+            /// <summary>
+            /// An invlaid frame size may happen if data is recieved on an open socket
+            /// but does not contain valid SSL handshake data
+            /// </summary>
+            private const int INVALID_FRAME_HRESULT = unchecked((int)0x80131501);
+
             public override async ValueTask<ITransportContext> AcceptAsync(CancellationToken cancellation)
             {
-                //Wait for tcp event and wrap in ctx class
-                ITcpConnectionDescriptor descriptor = await Server.AcceptConnectionAsync(cancellation);
-
-                //Create ssl stream and auth
-                SslStream stream = new(descriptor.GetStream(), false);
-
-                try
+                //Loop to handle ssl exceptions ourself
+                do
                 {
-                    //auth the new connection
-                    await stream.AuthenticateAsServerAsync(AuthOptions, cancellation);
-                    return new SslTcpTransportContext(Server, descriptor, stream);                    
+                    //Wait for tcp event and wrap in ctx class
+                    ITcpConnectionDescriptor descriptor = await Server.AcceptConnectionAsync(cancellation);
+
+                    //Create ssl stream and auth
+                    SslStream stream = new(descriptor.GetStream(), false);
+
+                    try
+                    {
+                        //auth the new connection
+                        await stream.AuthenticateAsServerAsync(AuthOptions, cancellation);
+                        return new SslTcpTransportContext(Server, descriptor, stream);
+                    }
+                    catch (AuthenticationException ae) when (ae.HResult == INVALID_FRAME_HRESULT)
+                    {
+                        Server.Config.Log.Debug("A TLS connection attempt was made but an invalid TLS frame was received");
+                        
+                        await Server.CloseConnectionAsync(descriptor, true);
+                        await stream.DisposeAsync();
+                        
+                        //continue listening loop
+                    }
+                    catch
+                    {
+                        await Server.CloseConnectionAsync(descriptor, true);
+                        await stream.DisposeAsync();
+                        throw;
+                    }
                 }
-                catch
-                {
-                    await Server.CloseConnectionAsync(descriptor, true);
-                    await stream.DisposeAsync();
-                    throw;
-                }
+                while (true);
             }
         }
     }

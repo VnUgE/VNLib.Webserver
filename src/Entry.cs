@@ -185,6 +185,8 @@ Starting...
                 logger.AppLog.Debug("Zero allocation flag was set, but the shared heap was not created with the GlobalZero flag, consider enabling zero allocations globally");
             }
 
+            logger.AppLog.Information("Reading HTTP configuration from file");
+
             //get the http conf for all servers
             HttpConfig? http = GetHttpConfig(config, procArgs, logger);
 
@@ -202,6 +204,7 @@ Starting...
                                     .WithDomain(domain => LoadRoots(config, logger.AppLog, domain))
                                     .WithBuiltInHttp(sg => GetTransportForServiceGroup(sg, logger.SysLog, procArgs), http.Value);
 
+            logger.AppLog.Information("Configuring plugin stack");
 
             //Add plugins to the service stack
             ConfigurePlugins(stack, logger, procArgs, config);
@@ -223,6 +226,8 @@ Starting...
                 logger.AppLog.Fatal("Failed to start server, address already in use");
                 return -1;
             }
+
+            logger.AppLog.Information("HTTP servers started");
 
             using ManualResetEvent ShutdownEvent = new(false);
 
@@ -669,6 +674,8 @@ Starting...
                 //Invoke parameterless on load method
                 Action? onLibLoad = ManagedLibrary.TryGetMethod<Action>(instance, EXTERN_LIB_LOAD_METHOD_NAME);
                 onLibLoad?.Invoke();
+
+                logger.AppLog.Verbose("User-defined compressor library loaded");
 
                 return instance;
             }

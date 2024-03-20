@@ -83,6 +83,7 @@ namespace VNLib.WebServer.Middlewares
             }
             else if (isCors | isCrossSite)
             {
+                Log.Verbose("Denied a cross-site/cors request from {con} because this site does not allow cross-site/cors requests", entity.TrustedRemoteIp);
                 return ValueTask.FromResult(FileProcessArgs.Deny);
             }
 
@@ -92,6 +93,7 @@ namespace VNLib.WebServer.Middlewares
                 string? dest = entity.Server.Headers["sec-fetch-dest"];
                 if (dest != null && (dest.Contains("object", StringComparison.OrdinalIgnoreCase) || dest.Contains("embed", StringComparison.OrdinalIgnoreCase)))
                 {
+                    Log.Debug("Denied a browser navigation request from {con} because it contained an object/embed", entity.TrustedRemoteIp);
                     return ValueTask.FromResult(FileProcessArgs.Deny);
                 }
             }

@@ -60,6 +60,9 @@ namespace VNLib.WebServer.Middlewares
                     {
                         Scheme = Uri.UriSchemeHttps
                     };
+
+                    Log.Debug("Possbile session TLS downgrade detected, redirecting {con} to secure endpoint", entity.TrustedRemoteIp);
+
                     //Redirect
                     entity.Redirect(RedirectType.Moved, ub.Uri);
                     return ValueTask.FromResult(FileProcessArgs.VirtualSkip);
@@ -87,7 +90,7 @@ namespace VNLib.WebServer.Middlewares
                     //Try to prevent security downgrade attacks
                     if (!(session.IPMatch && session.SecurityProcol <= entity.Server.GetSslProtocol()))
                     {
-                        Log.Debug("Denied connection from {0} due to security downgrade attack.", entity.TrustedRemoteIp);
+                        Log.Debug("Possible TLS downgrade attack stopeed from connection {con}", entity.TrustedRemoteIp);
                         return ValueTask.FromResult(FileProcessArgs.Deny);
                     }
                 }

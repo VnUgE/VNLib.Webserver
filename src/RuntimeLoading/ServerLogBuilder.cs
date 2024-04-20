@@ -23,10 +23,10 @@
 */
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Collections.Generic;
 
 using Serilog;
 
@@ -62,12 +62,12 @@ namespace VNLib.WebServer.RuntimeLoading
 
         public ServerLogger GetLogger()
         {
-            //build providers
-            VLogProvider appLog = new(AppLogConfig);
-            VLogProvider sysLog = new(SysLogConfig);
-            VLogProvider? debugLog = DebugConfig == null ? null : new(DebugConfig);
             //Return logger
-            return new ServerLogger(appLog, sysLog, debugLog);
+            return new (
+                new(AppLogConfig),
+                new(SysLogConfig),
+                DebugConfig == null ? null : new(DebugConfig)
+            );
         }
 
         private static void InitConsoleLog(ProcessArguments args, LoggerConfiguration conf, string logName)

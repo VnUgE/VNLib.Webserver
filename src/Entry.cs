@@ -123,6 +123,7 @@ Starting...
         internal const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
         internal const string SERVER_HEADERS_PROP_NAME = "headers";
         internal const string SERVER_WHITELIST_PROP_NAME = "whitelist";
+        internal const string SERVER_TRACE_PROP_NAME = "trace";
 
         internal const string HTTP_CONF_PROP_NAME = "http";
 
@@ -456,6 +457,7 @@ Starting...
  | Hostnames: {hn}
  | Directory: {dir}
  | Interface: {ep}
+ | Trace connections: {tc}
  | SSL: {ssl}, Client cert required: {cc}
  | Whitelist entries: {wl}
  | Downstream servers: {ds}
@@ -472,6 +474,9 @@ Starting...
                 //Enumerate all virtual host configurations
                 foreach (JsonElement vhElement in config.RootElement.GetProperty(HOSTS_CONFIG_PROP_NAME).EnumerateArray())
                 {
+                    //See if connection tracing is enabled for this host
+                    bool traceCons = vhElement.TryGetProperty(SERVER_TRACE_PROP_NAME, out JsonElement traceEl) && traceEl.GetBoolean();
+
                     //Inint config builder
                     IVirtualHostConfigBuilder builder = new JsonWebConfigBuilder(vhElement, execTimeout, log, DefaultInterface);
 
@@ -503,6 +508,12 @@ Starting...
                         conf.CustomMiddleware.Add(new WhitelistMiddleware(log, conf.WhiteList));
                     }
 
+                    //Add tracing middleware if enabled
+                    if (traceCons)
+                    {
+                        conf.CustomMiddleware.Add(new ConnectionLogMiddleware(log));
+                    }
+
                     if (!conf.RootDir.Exists)
                     {
                         conf.RootDir.Create();
@@ -525,6 +536,7 @@ Starting...
                             hostnames,
                             conf.RootDir.FullName,
                             conf.TransportEndpoint,
+                            traceCons,
                             conf.Certificate != null,
                             conf.Certificate.IsClientCertRequired(),
                             conf.WhiteList?.ToArray(),

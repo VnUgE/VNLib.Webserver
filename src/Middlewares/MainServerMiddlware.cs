@@ -64,9 +64,11 @@ namespace VNLib.WebServer.Middlewares
             //If not behind upstream server, uri ports and server ports must match
             if (!entity.IsBehindDownStreamServer && !entity.Server.EnpointPortsMatch())
             {
-                Log.Debug("Connection received on port {p} but the client host port did not match at {pp}",
+                Log.Debug("Connection {ip} received on port {p} but the client host port did not match at {pp}",
+                    entity.TrustedRemoteIp,
                     entity.Server.LocalEndpoint.Port,
-                    entity.Server.RequestUri.Port);
+                    entity.Server.RequestUri.Port
+                );
 
                 return ValueTask.FromResult(FileProcessArgs.Deny);
             }

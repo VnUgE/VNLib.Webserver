@@ -48,7 +48,7 @@ namespace VNLib.WebServer.Middlewares
                 string userId = string.Empty;
                 if (entity.Session.IsSet)
                 {
-                    userId = entity.Session.UserID?[..8] ?? string.Empty;
+                    userId = entity.Session.UserID;
                 }
 
                 Log.Information(template,

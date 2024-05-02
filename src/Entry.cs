@@ -489,7 +489,6 @@ Starting...
 
                     //Init middleware stack
                     conf.CustomMiddleware.Add(new MainServerMiddlware(log, conf));
-                    conf.CustomMiddleware.Add(new SessionSecurityMiddelware(log));
 
                     /*
                      * We only enable cors if the configuration has a value for the allow cors property.

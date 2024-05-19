@@ -476,6 +476,7 @@ Starting...
                 {
                     //See if connection tracing is enabled for this host
                     bool traceCons = vhElement.TryGetProperty(SERVER_TRACE_PROP_NAME, out JsonElement traceEl) && traceEl.GetBoolean();
+                    bool benchmark = vhElement.TryGetProperty("enable_benchmark", out JsonElement benchEl);
 
                     //Inint config builder
                     IVirtualHostConfigBuilder builder = new JsonWebConfigBuilder(vhElement, execTimeout, log, DefaultInterface);
@@ -491,26 +492,39 @@ Starting...
                     conf.CustomMiddleware.Add(new MainServerMiddlware(log, conf));
 
                     /*
-                     * We only enable cors if the configuration has a value for the allow cors property.
-                     * The user may disable cors totally, deny cors requests, or enable cors with a whitelist
-                     * 
-                     * Only add the middleware if the confg has a value for the allow cors property
+                     * In benchmark mode, skip other middleware that might slow connections down
                      */
-                    if (conf.AllowCors.HasValue)
+                    if (benchmark)
                     {
-                        conf.CustomMiddleware.Add(new CORSMiddleware(log, conf));
-                    }
+                        int size = benchEl.GetProperty("size").GetInt32();
+                        bool random = benchEl.GetProperty("random").GetBoolean();
 
-                    //Add whitelist middleware if the configuration has a whitelist
-                    if (conf.WhiteList != null)
-                    {
-                        conf.CustomMiddleware.Add(new WhitelistMiddleware(log, conf.WhiteList));
+                        conf.CustomMiddleware.Add(new BenchmarkMiddleware(size, random));
                     }
-
-                    //Add tracing middleware if enabled
-                    if (traceCons)
+                    else
                     {
-                        conf.CustomMiddleware.Add(new ConnectionLogMiddleware(log));
+                        /*
+                         * We only enable cors if the configuration has a value for the allow cors property.
+                         * The user may disable cors totally, deny cors requests, or enable cors with a whitelist
+                         * 
+                         * Only add the middleware if the confg has a value for the allow cors property
+                         */
+                        if (conf.AllowCors.HasValue)
+                        {
+                            conf.CustomMiddleware.Add(new CORSMiddleware(log, conf));
+                        }
+
+                        //Add whitelist middleware if the configuration has a whitelist
+                        if (conf.WhiteList != null)
+                        {
+                            conf.CustomMiddleware.Add(new WhitelistMiddleware(log, conf.WhiteList));
+                        }
+
+                        //Add tracing middleware if enabled
+                        if (traceCons)
+                        {
+                            conf.CustomMiddleware.Add(new ConnectionLogMiddleware(log));
+                        }
                     }
 
                     if (!conf.RootDir.Exists)
@@ -592,8 +606,10 @@ Starting...
                     ActiveConnectionRecvTimeout = (int)httpEl["recv_timeout_ms"].GetUInt32(),
                     SendTimeout = (int)httpEl["send_timeout_ms"].GetUInt32(),
                     MaxRequestHeaderCount = (int)httpEl["max_request_header_count"].GetUInt32(),
-                    MaxOpenConnections = (int)httpEl["max_connections"].GetUInt32(),     
+                    MaxOpenConnections = (int)httpEl["max_connections"].GetUInt32(),
                     MaxUploadsPerRequest = httpEl["max_uploads_per_request"].GetUInt16(),
+
+                    DebugPerformanceCounters = args.HasArgument("--http-counters"),
 
                     //Buffer config update
                     BufferConfig = new()

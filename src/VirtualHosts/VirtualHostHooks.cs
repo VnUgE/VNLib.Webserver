@@ -61,38 +61,58 @@ namespace VNLib.WebServer
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public string TranslateResourcePath(string requestPath)
         {
-            //Filter the path using the supplied regex
+
+            /*
+             * This function must safely translate a request URL as "unsanitized" 
+             * user input to a safe filesystem path for a desired resource.
+             * 
+             * A user may supply a custom regex file as a first line of defense 
+             * for illegal fs characters. 
+             * 
+             * It is safe to assume the path is a local path, (not absolute) so 
+             * it should not contain an illegal FS scheme
+             */
+          
             requestPath = config.PathFilter?.Replace(requestPath, string.Empty) ?? requestPath;
-            //Alloc temp buffer from the shared heap, 
+          
             using UnsafeMemoryHandle<char> charBuffer = MemoryUtil.UnsafeAlloc<char>(FILE_PATH_BUILDER_BUFFER_SIZE);
-            //Buffer writer
+          
             ForwardOnlyWriter<char> sb = new(charBuffer.Span);
+
             //Start with the root filename
             sb.Append(config.RootDir.FullName);
+
             //Supply a "leading" dir separator character 
             if (requestPath[0] != '/')
             {
                 sb.Append('/');
             }
+
             //Add the path (trimmed for whitespace)
             sb.Append(requestPath);
+
             //Attmept to filter traversals
             sb.Replace("..", string.Empty);
+
             //if were on windows, convert to windows directory separators
             if (OperatingSystem.IsWindows())
             {
                 sb.Replace("/", "\\");
             }
-            //Convert to unix paths
             else
             {
                 sb.Replace("\\", "/");
             }
-            //If file is given without extension, append a .html extension
+            
+            /*
+             * DEFAULT: If no file extension is listed or, is not a / separator, then 
+             * add a .html extension
+             */
             if (!Path.EndsInDirectorySeparator(requestPath) && !Path.HasExtension(requestPath))
             {
-                sb.Append(".html");
+                sb.AppendSmall(".html");
             }
+            
             return sb.ToString();
         }
 

@@ -56,15 +56,8 @@ namespace VNLib.WebServer.TcpMemoryPool
         /// <returns>The http server memory pool</returns>
         public static IHttpMemoryPool GetHttpPool(bool zeroOnAlloc) => new HttpMemoryPool(zeroOnAlloc);
 
-        internal sealed class HttpMemoryPool : MemoryPool<byte>, IHttpMemoryPool
+        internal sealed class HttpMemoryPool(bool zeroOnAlloc) : MemoryPool<byte>, IHttpMemoryPool
         {
-            private readonly bool _zeroOnAlloc;
-
-            public HttpMemoryPool(bool zeroOnAlloc)
-            {
-                _zeroOnAlloc = zeroOnAlloc;
-            }
-
             ///<inheritdoc/>
             public override int MaxBufferSize { get; } = int.MaxValue;
 
@@ -77,49 +70,40 @@ namespace VNLib.WebServer.TcpMemoryPool
             {
                 //round to nearest page
                 nint initSize = MemoryUtil.NearestPage(initialSize);
-                return MemoryUtil.Shared.Alloc<T>(initSize, _zeroOnAlloc);
+                return MemoryUtil.Shared.Alloc<T>(initSize, zeroOnAlloc);
             }
 
             ///<inheritdoc/>
             public override IMemoryOwner<byte> Rent(int minBufferSize = -1)
             {
-                nint toPage = MemoryUtil.NearestPage(minBufferSize);
-                return new UnsafeMemoryManager(MemoryUtil.Shared, (nuint)toPage, _zeroOnAlloc);
+                nint initSize = MemoryUtil.NearestPage(minBufferSize);
+                return new UnsafeMemoryManager(MemoryUtil.Shared, (nuint)initSize, zeroOnAlloc);
             }
 
             ///<inheritdoc/>
             protected override void Dispose(bool disposing)
             { }
 
-            sealed class UnsafeMemoryManager : MemoryManager<byte>
+            sealed class UnsafeMemoryManager(IUnmangedHeap heap, nuint bufferSize, bool zero) : MemoryManager<byte>
             {
-                private readonly IUnmangedHeap _heap;
 
-                private IntPtr _pointer;
-                private int _size;
+                private IntPtr _pointer = heap.Alloc(bufferSize, sizeof(byte), zero);
+                private int _size = (int)bufferSize;
 
-                public UnsafeMemoryManager(IUnmangedHeap heap, nuint bufferSize, bool zero)
-                {
-                    _size = (int)bufferSize;
-                    _heap = heap;
-                    _pointer = heap.Alloc(bufferSize, sizeof(byte), zero);
-                }
-
+                ///<inheritdoc/>
                 public override Span<byte> GetSpan()
                 {
-                    //Guard
                     Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly or was released");
 
                     return MemoryUtil.GetSpan<byte>(_pointer, _size);
                 }
 
+                ///<inheritdoc/>
                 public override MemoryHandle Pin(int elementIndex = 0)
                 {
                     //Guard
-                    if(elementIndex >= _size || elementIndex < 0)
-                    {
-                        throw new ArgumentOutOfRangeException(nameof(elementIndex));
-                    }
+                    ArgumentOutOfRangeException.ThrowIfNegative(elementIndex);
+                    ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(elementIndex, _size);
 
                     Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly or was released");
 
@@ -130,17 +114,16 @@ namespace VNLib.WebServer.TcpMemoryPool
                     return MemoryUtil.GetMemoryHandleFromPointer(offset, pinnable:this);
                 }
 
+                //No-op
                 public override void Unpin()
-                {
-                    //No-op
-                }
+                { }
 
                 protected override void Dispose(bool disposing)
                 {
                     Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly");
 
                     //Free the memory, should also zero the pointer
-                    _heap.Free(ref _pointer);
+                    Debug.Assert(heap.Free(ref _pointer), "Failed to free an allocated block");
                     
                     //Set size to 0
                     _size = 0;

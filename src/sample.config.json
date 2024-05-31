@@ -3,6 +3,14 @@
   //Host application config, config is loaded as a read-only DOM that is available 
   //to the host and loaded child plugins, all elements are available to plugins via the 'HostConfig' property
 
+  "tcp": {
+    "keepalive_sec": 0,           //How long to wait for a keepalive response before closing the connection (0 to disable tcp keepalive)
+    "keepalive_interval_sec": 0,  //How long to wait between keepalive probes
+    "max_recv_size": 655360,      //640k absolute maximum recv buffer (defaults to OS socket buffer size)
+    "max_connections": 50000,     //Per server instance
+    "backlog": 1000               //OS socket backlog,
+  },
+
   "http": {
     //The defaut HTTP version to being requests with (does not support http/2 yet)
     "default_version": "HTTP/1.1",
@@ -35,7 +43,7 @@
     //Max number of multi-part file uploads allowed per request
     "max_uploads_per_request": 10
   },
-  
+
   //Path to managed compressor library
   "compression_lib": null,
 

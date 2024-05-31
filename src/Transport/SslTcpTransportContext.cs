@@ -32,16 +32,11 @@ using VNLib.Net.Transport.Tcp;
 
 namespace VNLib.WebServer.Transport
 {
-    internal sealed class SslTcpTransportContext : TcpTransportContext
+    internal sealed class SslTcpTransportContext(ITcpListner server, ITcpConnectionDescriptor descriptor, SslStream stream) 
+        : TcpTransportContext(server, descriptor, stream)
     {
         private TransportSecurityInfo? _securityInfo;
-        private readonly SslStream _baseStream;
-
-        public SslTcpTransportContext(TcpServer server, ITcpConnectionDescriptor descriptor, SslStream stream): 
-            base(server, descriptor, stream)
-        {
-            _baseStream = stream;
-        }
+        private readonly SslStream _baseStream = stream;
 
         ///<inheritdoc/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

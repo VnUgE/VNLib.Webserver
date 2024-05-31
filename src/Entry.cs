@@ -32,7 +32,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Reflection;
 using System.Net.Sockets;
-using System.Net.Security;
 using System.Runtime.Loader;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -48,13 +47,12 @@ using VNLib.Utils.Memory.Diagnostics;
 using VNLib.Hashing;
 using VNLib.Hashing.Native.MonoCypher;
 using VNLib.Net.Http;
-using VNLib.Net.Transport.Tcp;
 using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.ServiceStack;
 using VNLib.Plugins.Essentials.ServiceStack.Construction;
 
+using VNLib.WebServer.Config;
 using VNLib.WebServer.Plugins;
-using VNLib.WebServer.Transport;
 using VNLib.WebServer.Compression;
 using VNLib.WebServer.Middlewares;
 using VNLib.WebServer.TcpMemoryPool;
@@ -75,17 +73,6 @@ Starting...
 
         private static readonly DirectoryInfo EXE_DIR = new(Environment.CurrentDirectory);
         private static readonly IPEndPoint DefaultInterface = new(IPAddress.Any, 80);
-
-        private static readonly TCPConfig BaseTcpConfig = new()
-        {
-            KeepaliveInterval = 4,
-            TcpKeepalive = false,
-            TcpKeepAliveTime = 4,
-            CacheQuota = 0,
-            //Max 640k per connection to be pre-loaded
-            MaxRecvBufferData = 10 * 64 * 1024,
-            BackLog = 1000
-        };
 
         /*
          * Chunked encoding is only used when compression is enabled
@@ -126,6 +113,8 @@ Starting...
         internal const string SERVER_TRACE_PROP_NAME = "trace";
 
         internal const string HTTP_CONF_PROP_NAME = "http";
+
+        internal const string TCP_CONF_PROP_NAME = "tcp";
 
         private const string HTTP_COMPRESSION_PROP_NAME = "compression_lib";
 
@@ -199,11 +188,15 @@ Starting...
 
             logger.AppLog.Information("Building service stack, populating service domain...");
 
+            TcpServerLoader tcpConf = new(config, procArgs, logger.SysLog);
+
+            bool loadPluginsConcurrently = !procArgs.HasArgument("--sequential-load");
+
             //Init service stack with built-in http
             HttpServiceStackBuilder stack = new HttpServiceStackBuilder()
-                                    .LoadPluginsConcurrently(!procArgs.HasArgument("--sequential-load"))
+                                    .LoadPluginsConcurrently(loadPluginsConcurrently)
                                     .WithDomain(domain => LoadRoots(config, logger.AppLog, domain))
-                                    .WithBuiltInHttp(sg => GetTransportForServiceGroup(sg, logger.SysLog, procArgs), http.Value);
+                                    .WithBuiltInHttp(tcpConf.GetProviderForServiceGroup, http.Value);
 
             logger.AppLog.Information("Configuring plugin stack");
 
@@ -711,70 +704,7 @@ Starting...
             {
                 throw te.InnerException;
             }
-        }
-
-        private static ITransportProvider GetTransportForServiceGroup(ServiceGroup group, ILogProvider sysLog, ProcessArguments args)
-        {
-            SslServerAuthenticationOptions? sslAuthOptions = null;
-
-            //See if certs are defined
-            if (group.Hosts.Where(static h => h.TransportInfo.Certificate != null).Any())
-            {
-                //If any hosts have ssl enabled, all shared endpoints MUST include a certificate to be bound to the same endpoint
-                if(!group.Hosts.All(static h => h.TransportInfo.Certificate != null))
-                {
-                    throw new ServerConfigurationException("One or more service hosts declared a shared endpoint with SSL enabled but not every host declared an SSL certificate for the shared interface");
-                }
-
-                //Build the server auth options for this transport provider
-                sslAuthOptions = new HostAwareServerSslOptions(group.Hosts, args.HasArgument("--use-os-ciphers"));
-            }
-
-            //Check cli args for inline scheduler
-            bool inlineScheduler = args.HasArgument("--inline-scheduler");
-
-            //Check cli args thread count
-            string? procCount = args.GetArgument("-t") ?? args.GetArgument("--threads");
-
-            if(!uint.TryParse(procCount, out uint threadCount))
-            {
-                threadCount = (uint)Environment.ProcessorCount;
-            }
-
-            //Init a new TCP config
-            TCPConfig tcpConf = new()
-            {
-                AcceptThreads = threadCount,
-
-                //Service endpoint to listen on
-                LocalEndPoint = group.ServiceEndpoint,
-                Log = sysLog,
-
-                //Copy from base config
-                TcpKeepAliveTime = BaseTcpConfig.TcpKeepAliveTime,
-                KeepaliveInterval = BaseTcpConfig.KeepaliveInterval,
-                TcpKeepalive = BaseTcpConfig.TcpKeepalive,
-                CacheQuota = BaseTcpConfig.CacheQuota,
-                MaxRecvBufferData = BaseTcpConfig.MaxRecvBufferData,
-                BackLog = BaseTcpConfig.BackLog,
-
-                DebugTcpLog = args.HasArgument("--log-transport"),
-
-                //Init buffer pool
-                BufferPool = PoolManager.GetPool(args.ZeroAllocations)
-            };
-
-            //Print warning message, since inline scheduler is an avanced feature
-            if(sslAuthOptions is not null && inlineScheduler)
-            {
-                sysLog.Debug("[WARN]: Inline scheduler is not available on server {server} when using TLS", group.ServiceEndpoint);
-            }
-
-            //Init new tcp server with/without ssl
-            return sslAuthOptions != null ? 
-                TcpTransport.CreateServer(in tcpConf, sslAuthOptions) 
-                : TcpTransport.CreateServer(in tcpConf, inlineScheduler);
-        }
+        }       
 
         private static void StdInListenerDoWork(ManualResetEvent shutdownEvent, ILogProvider appLog, HttpServiceStack serviceStack)
         {

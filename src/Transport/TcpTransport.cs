@@ -22,6 +22,7 @@
 * along with VNLib.WebServer. If not, see http://www.gnu.org/licenses/.
 */
 
+using System;
 using System.Threading;
 using System.IO.Pipelines;
 using System.Net.Security;
@@ -31,7 +32,6 @@ using System.Security.Authentication;
 using VNLib.Net.Http;
 using VNLib.Net.Transport.Tcp;
 using VNLib.Utils.Logging;
-
 
 namespace VNLib.WebServer.Transport
 {
@@ -98,24 +98,35 @@ namespace VNLib.WebServer.Transport
         /// </summary>
         private class TcpTransportProvider(TcpServer Server) : ITransportProvider
         {
+            protected ITcpListner? _listener;
+            protected CancellationTokenRegistration _reg;
+
             ///<inheritdoc/>
             void ITransportProvider.Start(CancellationToken stopToken)
             {
+                //TEMPORARY (unless it works)
+                if(_listener is not null)
+                {
+                    throw new InvalidOperationException("The server has already been started.");
+                }
+
                 //Start the server
-                _ = Server.Start(stopToken);
+                _listener = Server.Listen();
+                _reg = stopToken.Register(_listener.Close, false);
             }
 
             ///<inheritdoc/>
             public virtual async ValueTask<ITransportContext> AcceptAsync(CancellationToken cancellation)
             {
                 //Wait for tcp event and wrap in ctx class
-                ITcpConnectionDescriptor descriptor = await Server.AcceptConnectionAsync(cancellation);
-                //Wrap event
-                return new TcpTransportContext(Server, descriptor, descriptor.GetStream());
+                ITcpConnectionDescriptor descriptor = await _listener!.AcceptConnectionAsync(cancellation);
+               
+                return new TcpTransportContext(_listener, descriptor, descriptor.GetStream());
             }
         }
 
-        private sealed class SslTcpTransportProvider(TcpServer Server, SslServerAuthenticationOptions AuthOptions) : TcpTransportProvider(Server)
+        private sealed class SslTcpTransportProvider(TcpServer Server, SslServerAuthenticationOptions AuthOptions) 
+            : TcpTransportProvider(Server)
         {
             /*
               * An SslStream may throw a win32 exception with HRESULT 0x80090327
@@ -137,7 +148,7 @@ namespace VNLib.WebServer.Transport
                 do
                 {
                     //Wait for tcp event and wrap in ctx class
-                    ITcpConnectionDescriptor descriptor = await Server.AcceptConnectionAsync(cancellation);
+                    ITcpConnectionDescriptor descriptor = await _listener.AcceptConnectionAsync(cancellation);
 
                     //Create ssl stream and auth
                     SslStream stream = new(descriptor.GetStream(), false);
@@ -146,20 +157,20 @@ namespace VNLib.WebServer.Transport
                     {
                         //auth the new connection
                         await stream.AuthenticateAsServerAsync(AuthOptions, cancellation);
-                        return new SslTcpTransportContext(Server, descriptor, stream);
+                        return new SslTcpTransportContext(_listener, descriptor, stream);
                     }
                     catch (AuthenticationException ae) when (ae.HResult == INVALID_FRAME_HRESULT)
                     {
                         Server.Config.Log.Debug("A TLS connection attempt was made but an invalid TLS frame was received");
                         
-                        await Server.CloseConnectionAsync(descriptor, true);
+                        await _listener.CloseConnectionAsync(descriptor, true);
                         await stream.DisposeAsync();
                         
                         //continue listening loop
                     }
                     catch
                     {
-                        await Server.CloseConnectionAsync(descriptor, true);
+                        await _listener.CloseConnectionAsync(descriptor, true);
                         await stream.DisposeAsync();
                         throw;
                     }

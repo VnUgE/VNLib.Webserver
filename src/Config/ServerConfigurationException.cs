@@ -24,17 +24,17 @@
 
 using System;
 
-namespace VNLib.WebServer
+namespace VNLib.WebServer.Config
 {
     public class ServerConfigurationException : Exception
     {
         public ServerConfigurationException()
-        {}
+        { }
 
         public ServerConfigurationException(string? message) : base(message)
-        {}
+        { }
 
         public ServerConfigurationException(string? message, Exception? innerException) : base(message, innerException)
-        {}
+        { }
     }
 }

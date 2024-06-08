@@ -122,8 +122,10 @@ namespace VNLib.WebServer.TcpMemoryPool
                 {
                     Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly");
 
+                    bool freed = heap.Free(ref _pointer);
+
                     //Free the memory, should also zero the pointer
-                    Debug.Assert(heap.Free(ref _pointer), "Failed to free an allocated block");
+                    Debug.Assert(freed, "Failed to free an allocated block");
                     
                     //Set size to 0
                     _size = 0;

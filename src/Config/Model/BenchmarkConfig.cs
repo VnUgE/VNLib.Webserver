@@ -3,10 +3,10 @@
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
-* File: JsonConfigOptions.cs 
+* File: BenchmarkConfig.cs 
 *
-* JsonConfigOptions.cs is part of VNLib.WebServer which is part of 
-* the larger VNLib collection of libraries and utilities.
+* BenchmarkConfig.cs is part of VNLib.WebServer which is part of the
+* larger VNLib collection of libraries and utilities.
 *
 * VNLib.WebServer is free software: you can redistribute it and/or modify 
 * it under the terms of the GNU General Public License as published
@@ -22,21 +22,21 @@
 * along with VNLib.WebServer. If not, see http://www.gnu.org/licenses/.
 */
 
-using System.Text.Json;
+using System.Text.Json.Serialization;
 
-namespace VNLib.WebServer.Config
+namespace VNLib.WebServer.Config.Model
 {
-    internal static class JsonConfigOptions
+    internal class BenchmarkConfig
     {
-        private static readonly JsonSerializerOptions _ops = new()
-        {
-            AllowTrailingCommas = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-        };
 
-        public static T? DeserializeElement<T>(this JsonElement el)
-        {
-            return el.Deserialize<T>(_ops);
-        }
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; }
+
+        [JsonPropertyName("size")]
+        public int Size { get; set; }
+
+        [JsonPropertyName("random")]
+        public bool Random { get; set; }
+
     }
 }

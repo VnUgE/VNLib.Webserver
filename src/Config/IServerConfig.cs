@@ -3,10 +3,10 @@
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
-* File: JsonConfigOptions.cs 
+* File: IServerConfig.cs 
 *
-* JsonConfigOptions.cs is part of VNLib.WebServer which is part of 
-* the larger VNLib collection of libraries and utilities.
+* IServerConfig.cs is part of VNLib.WebServer which is part of the larger 
+* VNLib collection of libraries and utilities.
 *
 * VNLib.WebServer is free software: you can redistribute it and/or modify 
 * it under the terms of the GNU General Public License as published
@@ -24,19 +24,11 @@
 
 using System.Text.Json;
 
+
 namespace VNLib.WebServer.Config
 {
-    internal static class JsonConfigOptions
+    internal interface IServerConfig
     {
-        private static readonly JsonSerializerOptions _ops = new()
-        {
-            AllowTrailingCommas = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-        };
-
-        public static T? DeserializeElement<T>(this JsonElement el)
-        {
-            return el.Deserialize<T>(_ops);
-        }
+        JsonElement GetDocumentRoot();
     }
 }

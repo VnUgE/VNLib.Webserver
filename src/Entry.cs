@@ -24,16 +24,10 @@
 
 using System;
 using System.IO;
-using System.Net;
-using System.Data;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
-using System.Reflection;
 using System.Net.Sockets;
-using System.Runtime.Loader;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography.X509Certificates;
@@ -41,23 +35,12 @@ using System.Security.Cryptography.X509Certificates;
 using VNLib.Utils.IO;
 using VNLib.Utils.Memory;
 using VNLib.Utils.Logging;
-using VNLib.Utils.Resources;
-using VNLib.Utils.Extensions;
-using VNLib.Utils.Memory.Diagnostics;
 using VNLib.Hashing;
 using VNLib.Hashing.Native.MonoCypher;
-using VNLib.Net.Http;
-using VNLib.Plugins.Runtime;
-using VNLib.Plugins.Essentials.ServiceStack;
-using VNLib.Plugins.Essentials.ServiceStack.Construction;
 
 using VNLib.WebServer.Config;
-using VNLib.WebServer.Plugins;
-using VNLib.WebServer.Compression;
-using VNLib.WebServer.Middlewares;
-using VNLib.WebServer.TcpMemoryPool;
+using VNLib.WebServer.Bootstrap;
 using VNLib.WebServer.RuntimeLoading;
-
 
 namespace VNLib.WebServer
 {
@@ -72,18 +55,6 @@ Starting...
 ";
 
         private static readonly DirectoryInfo EXE_DIR = new(Environment.CurrentDirectory);
-        private static readonly IPEndPoint DefaultInterface = new(IPAddress.Any, 80);
-
-        /*
-         * Chunked encoding is only used when compression is enabled
-         * and the output block size is fixed, usually some multiple 
-         * of 8k. So this value should be the expected size of the 
-         * block to trigger a write to the transport. 
-         * 
-         * This value should be larger than the expected block size,
-         * otherwise this may cause excessive double buffer overhead.
-         */
-        private const int CHUNCKED_ACC_BUFFER_SIZE = 64 * 1024;
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
 
@@ -93,20 +64,14 @@ Starting...
         internal const string SERVER_ENDPOINT_PROP_NAME = "interface";
         internal const string SERVER_ENDPOINT_PORT_PROP_NAME = "port";
         internal const string SERVER_ENDPOINT_IP_PROP_NAME = "address";
-        internal const string SERVER_CERT_PROP_NAME = "cert";
-        internal const string SERVER_PRIV_KEY_PROP_NAME = "privkey";
-        internal const string SERVER_SSL_PROP_NAME = "ssl";
-        internal const string SERVER_SSL_CREDS_REQUIRED_PROP_NAME = "client_cert_required";
         internal const string SERVER_HOSTNAME_PROP_NAME = "hostname";
         internal const string SERVER_HOSTNAME_ARRAY_PROP_NAME = "hostnames";
         internal const string SERVER_ROOT_PATH_PROP_NAME = "path";
         internal const string SESSION_TIMEOUT_PROP_NAME = "max_execution_time_ms";
         internal const string SERVER_DEFAULT_FILE_PROP_NAME = "default_files";
-        internal const string SERVER_DENY_EXTENSIONS_PROP_NAME = "default_files";
+        internal const string SERVER_DENY_EXTENSIONS_PROP_NAME = "deny_extensions";
         internal const string SERVER_PATH_FILTER_PROP_NAME = "path_filter";
-        internal const string SERVER_CORS_ENEABLE_PROP_NAME = "enable_cors";
         internal const string SERVER_CACHE_DEFAULT_PROP_NAME = "cache_default_sec";
-        internal const string SERVER_CORS_AUTHORITY_PROP_NAME = "cors_allowed_authority";
         internal const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
         internal const string SERVER_HEADERS_PROP_NAME = "headers";
         internal const string SERVER_WHITELIST_PROP_NAME = "whitelist";
@@ -116,11 +81,11 @@ Starting...
 
         internal const string TCP_CONF_PROP_NAME = "tcp";
 
-        private const string HTTP_COMPRESSION_PROP_NAME = "compression_lib";
+        internal const string HTTP_COMPRESSION_PROP_NAME = "compression_lib";
 
         internal const string LOAD_DEFAULT_HOSTNAME_VALUE = "[system]";
 
-        private const string PLUGINS_CONFIG_PROP_NAME = "plugins";
+        internal const string PLUGINS_CONFIG_PROP_NAME = "plugins";
 
 
         static int Main(string[] args)
@@ -141,15 +106,15 @@ Starting...
             logBuilder.BuildForConsole(procArgs);
 
             //try to load the json configuration file
-            using JsonDocument? config = LoadConfig(procArgs);
-            if (config == null)
+            IServerConfig? config = LoadConfig(procArgs);
+            if (config is null)
             {
                 logBuilder.AppLogConfig.CreateLogger().Error("No configuration file was found");
                 return -1;
             }
 
             //Build logs from config
-            logBuilder.BuildFromConfig(config.RootElement);
+            logBuilder.BuildFromConfig(config.GetDocumentRoot());
 
             //Create the logger
             using ServerLogger logger = logBuilder.GetLogger();
@@ -157,7 +122,7 @@ Starting...
             //Dump config to console
             if (procArgs.HasArgument("--dump-config"))
             {
-                DumpConfig(config, logger);
+                DumpConfig(config.GetDocumentRoot(), logger);
             }
 
             //Setup the app-domain listener
@@ -168,98 +133,101 @@ Starting...
             {
                 logger.AppLog.Warn("HTTP Logging is only enabled in builds compiled with DEBUG symbols");
             }
-#endif
+#endif           
 
             if (procArgs.ZeroAllocations && !MemoryUtil.Shared.CreationFlags.HasFlag(HeapCreation.GlobalZero))
             {
                 logger.AppLog.Debug("Zero allocation flag was set, but the shared heap was not created with the GlobalZero flag, consider enabling zero allocations globally");
             }
 
-            logger.AppLog.Information("Reading HTTP configuration from file");
-
-            //get the http conf for all servers
-            HttpConfig? http = GetHttpConfig(config, procArgs, logger);
-
-            //If no http config is defined, we cannot continue
-            if (!http.HasValue)
-            {
-                return -1;
-            }
-
-            logger.AppLog.Information("Building service stack, populating service domain...");
-
-            TcpServerLoader tcpConf = new(config, procArgs, logger.SysLog);
-
-            bool loadPluginsConcurrently = !procArgs.HasArgument("--sequential-load");
-
-            //Init service stack with built-in http
-            HttpServiceStackBuilder stack = new HttpServiceStackBuilder()
-                                    .LoadPluginsConcurrently(loadPluginsConcurrently)
-                                    .WithDomain(domain => LoadRoots(config, logger.AppLog, domain))
-                                    .WithBuiltInHttp(tcpConf.GetProviderForServiceGroup, http.Value);
-
-            logger.AppLog.Information("Configuring plugin stack");
-
-            //Add plugins to the service stack
-            ConfigurePlugins(stack, logger, procArgs, config);
-
-            //Build the service stack
-            using HttpServiceStack serviceStack = stack.Build();
-
-            //load plugins into stack
-            serviceStack.LoadPlugins(logger.AppLog);
-
-            logger.AppLog.Information("Starting listeners...");
+            using WebserverBase server = GetWebserver(logger, config, procArgs);
 
             try
             {
-                serviceStack.StartServers();
+                logger.AppLog.Information("Building service stack, populating service domain...");
+
+                server.Configure();
             }
-            catch (SocketException se) when(se.SocketErrorCode == SocketError.AddressAlreadyInUse)
+            catch(ServerConfigurationException sce)
             {
-                logger.AppLog.Fatal("Failed to start server, address already in use");
+                logger.AppLog.Error("Failed to configure server. Reason: {sce}", sce.Message);
+                return -1;
+            }
+            catch (Exception ex)
+            {
+                logger.AppLog.Fatal(ex, "Failed to configure server");
                 return -1;
             }
 
-            logger.AppLog.Information("HTTP servers started");
+            logger.AppLog.Verbose("Server configuration stage complete");
 
             using ManualResetEvent ShutdownEvent = new(false);
 
-            //Register console cancel to cause cleanup
-            Console.CancelKeyPress += (object? sender, ConsoleCancelEventArgs e) =>
+            try
             {
-                e.Cancel = true;
-                ShutdownEvent.Set();
-            };
+                logger.AppLog.Information("Starting services...");
 
-            //Allow user to disable the console listener
-            if (!procArgs.HasArgument("--input-off"))
-            {
+                server.Start();
 
-                //Start listening for commands on a background thread, so it does not interfere with async tasks on tp threads
-                Thread consoleListener = new(() => StdInListenerDoWork(ShutdownEvent, logger.AppLog, serviceStack))
+                logger.AppLog.Information("Service stack started, servers are listening.");
+
+                //Register console cancel to cause cleanup
+                Console.CancelKeyPress += (object? sender, ConsoleCancelEventArgs e) =>
                 {
-                    //Allow the main thread to exit
-                    IsBackground = true
+                    e.Cancel = true;
+                    ShutdownEvent.Set();
                 };
 
-                //Start listener thread
-                consoleListener.Start();
+                /*
+                 * Optional background thread to listen for commands on stdin which 
+                 * can also request a server shutdown. 
+                 * 
+                 * The loop runs in a background thread and will not block the main thread
+                 * The loop can request a server shutdown by setting the shutdown event
+                 */
+
+                if (!procArgs.HasArgument("--input-off"))
+                {
+                    CommandListener cmdLoop = CommandListener.FromConsole(logger.AppLog);
+
+                    Thread consoleListener = new(() => cmdLoop.ListenForCommands(ShutdownEvent, server))
+                    {
+                        IsBackground = true
+                    };
+                    
+                    consoleListener.Start();
+                }
+
+                logger.AppLog.Information("Main thread waiting for exit signal, press ctrl + c to exit");
+               
+                //Wait for user signal to exit
+                ShutdownEvent.WaitOne();
+
+                logger.AppLog.Information("Stopping service stack");
+              
+                server.Stop();
+
+                //Wait for all plugins to unload and cleanup (temporary)
+                Thread.Sleep(500);
+
+                return 0;
+            }
+            catch (SocketException se) when (se.SocketErrorCode == SocketError.AddressAlreadyInUse)
+            {
+                logger.AppLog.Fatal("Failed to start servers, address already in use");
+                return (int)se.SocketErrorCode;
+            }
+            catch (SocketException se)
+            {
+                logger.AppLog.Fatal(se, "Failed to start servers due to a socket exception");
+                return (int)se.SocketErrorCode;
+            }
+            catch(Exception ex)
+            {
+                logger.AppLog.Fatal(ex, "Failed to start web servers");
             }
 
-            logger.AppLog.Information("Main thread waiting for exit signal, press ctrl + c to exit");
-
-            //Wait for process cleanup/exit
-            ShutdownEvent.WaitOne();
-
-            logger.AppLog.Information("Stopping service stack");
-
-            //Wait for ss to exit
-            serviceStack.StopAndWaitAsync().GetAwaiter().GetResult();
-
-            //Wait for all plugins to unload and cleanup (temporary)
-            Thread.Sleep(500);
-            return 0;
+            return -1;
         }
 
         static void PrintHelpMenu()
@@ -319,34 +287,20 @@ Starting...
         /// </summary>
         /// <param name="args">The command-line-arguments</param>
         /// <returns>A new <see cref="JsonDocument"/> that contains the application configuration</returns>
-        private static JsonDocument? LoadConfig(ProcessArguments args)
+        private static IServerConfig? LoadConfig(ProcessArguments args)
         {
             //Get the config path or default config
             string configPath = args.GetArgument("--config") ?? Path.Combine(EXE_DIR.FullName, DEFAULT_CONFIG_PATH);
 
-            if (!FileOperations.FileExists(configPath))
-            {
-                return null;
-            }
-
-            //Open the config file
-            using FileStream fs = new(configPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
-
-            //Allow comments
-            JsonDocumentOptions jdo = new()
-            {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            };
-
-            return JsonDocument.Parse(fs, jdo);
+            return JsonServerConfig.FromFile(configPath);
         }
 
-        private static void DumpConfig(JsonDocument doc, ServerLogger logger)
+
+        private static void DumpConfig(JsonElement doc, ServerLogger logger)
         {            
             //Dump the config to the console
             using VnMemoryStream ms = new();
-            using (Utf8JsonWriter writer = new(ms, new JsonWriterOptions() { Indented = true }))
+            using (Utf8JsonWriter writer = new(ms, new () { Indented = true }))
             {
                 doc.WriteTo(writer);
             }
@@ -356,492 +310,7 @@ Starting...
         }
 
         #endregion
-
-        private static void ConfigurePlugins(HttpServiceStackBuilder http, ServerLogger logger, ProcessArguments args, JsonDocument config)
-        {
-            //do not load plugins if disabled
-            if (args.HasArgument("--no-plugins"))
-            {
-                logger.AppLog.Information("Plugin loading disabled via options flag");
-                return;
-            }
-
-            if (!config.RootElement.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
-            {
-                logger.AppLog.Debug("No plugin configuration found");
-                return;
-            }
-
-            //See if an alternate plugin config directory is specified
-            string? altPluginConfigDir = plCfg.TryGetProperty("config_dir", out JsonElement cfgDirEl) ? cfgDirEl.GetString()! : null;
-
-            //Check for hot-reload
-            bool hotReload = plCfg.TryGetProperty("hot_reload", out JsonElement hrEl) && hrEl.GetBoolean();
-
-            //Set the reload delay
-            TimeSpan delay = TimeSpan.FromSeconds(2);
-            if (plCfg.TryGetProperty("reload_delay_sec", out JsonElement reloadDelayEl))
-            {
-                delay = reloadDelayEl.GetTimeSpan(TimeParseType.Seconds);
-            }
-
-            string pluginDir = plCfg.TryGetProperty("path", out JsonElement pathEl) ? pathEl.GetString()! : "/plugins";
-
-            //Init new plugin stack builder
-            PluginStackBuilder pluginBuilder = PluginStackBuilder.Create()
-                                    .WithDebugLog(logger.AppLog)
-                                    .WithSearchDirectory(pluginDir)
-                                    .WithLoaderFactory(PluginAsemblyLoading.Create);
-
-            //Setup plugin config data
-            if(string.IsNullOrWhiteSpace(altPluginConfigDir))
-            {
-                //Set config with root element
-                pluginBuilder.WithLocalJsonConfig(config.RootElement);
-            }
-            else
-            {
-                //Specify alternate config directory
-                pluginBuilder.WithJsonConfigDir(config.RootElement, new(altPluginConfigDir));
-            }
-            
-
-            //Enable plugin hot-reload
-            if (hotReload)
-            {
-                pluginBuilder.EnableHotReload(delay);
-            }
-
-            const string PLUGIN_DATA_TEMPLATE =
-@"
-----------------------------------
- |      Plugin configuration:
- | Enabled: {enabled}
- | Directory: {dir}
- | Hot Reload: {hr}
- | Reload Delay: {delay}s
-----------------------------------";
-
-            logger.AppLog.Information(
-                PLUGIN_DATA_TEMPLATE,
-                true,
-                pluginDir,
-                hotReload,
-                delay.TotalSeconds
-            );
-
-            //Add the plugin stack to the http service stack
-            http.WithPluginStack(pluginBuilder.ConfigureStack);
-        }
-
-
-        /// <summary>
-        /// Loads all server roots from the configuration file
-        /// </summary>
-        /// <param name="config">The application configuration to load</param>
-        /// <param name="log"></param>
-        /// <remarks>A value that indicates if roots we loaded correctly, or false if errors occured and could not be loaded</remarks>
-        private static bool LoadRoots(JsonDocument config, ILogProvider log, IDomainBuilder domain)
-        {
-            const string FOUND_VH_TEMPLATE =
-@"
---------------------------------------------------
- |           Found virtual host:
- | Hostnames: {hn}
- | Directory: {dir}
- | Interface: {ep}
- | Trace connections: {tc}
- | SSL: {ssl}, Client cert required: {cc}
- | Whitelist entries: {wl}
- | Downstream servers: {ds}
- | CORS Enabled: {enlb}
- | Allowed CORS sites: {cors}
- | Cached error files: {ef}
---------------------------------------------------";
-
-            try
-            {
-                //execution timeout
-                TimeSpan execTimeout = config.RootElement.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds);
-
-                //Enumerate all virtual host configurations
-                foreach (JsonElement vhElement in config.RootElement.GetProperty(HOSTS_CONFIG_PROP_NAME).EnumerateArray())
-                {
-                    //See if connection tracing is enabled for this host
-                    bool traceCons = vhElement.TryGetProperty(SERVER_TRACE_PROP_NAME, out JsonElement traceEl) && traceEl.GetBoolean();
-                    bool benchmark = vhElement.TryGetProperty("enable_benchmark", out JsonElement benchEl);
-
-                    //Inint config builder
-                    IVirtualHostConfigBuilder builder = new JsonWebConfigBuilder(vhElement, execTimeout, log, DefaultInterface);
-
-                    //Load the base configuration and hostname list
-                    VirtualHostConfig conf = builder.GetBaseConfig();
-                    string[] hostnames = builder.GetHostnames();
-
-                    //Configure event hooks
-                    conf.EventHooks = new VirtualHostHooks(conf);
-
-                    //Init middleware stack
-                    conf.CustomMiddleware.Add(new MainServerMiddlware(log, conf));
-
-                    /*
-                     * In benchmark mode, skip other middleware that might slow connections down
-                     */
-                    if (benchmark)
-                    {
-                        int size = benchEl.GetProperty("size").GetInt32();
-                        bool random = benchEl.GetProperty("random").GetBoolean();
-
-                        conf.CustomMiddleware.Add(new BenchmarkMiddleware(size, random));
-                    }
-                    else
-                    {
-                        /*
-                         * We only enable cors if the configuration has a value for the allow cors property.
-                         * The user may disable cors totally, deny cors requests, or enable cors with a whitelist
-                         * 
-                         * Only add the middleware if the confg has a value for the allow cors property
-                         */
-                        if (conf.AllowCors.HasValue)
-                        {
-                            conf.CustomMiddleware.Add(new CORSMiddleware(log, conf));
-                        }
-
-                        //Add whitelist middleware if the configuration has a whitelist
-                        if (conf.WhiteList != null)
-                        {
-                            conf.CustomMiddleware.Add(new WhitelistMiddleware(log, conf.WhiteList));
-                        }
-
-                        //Add tracing middleware if enabled
-                        if (traceCons)
-                        {
-                            conf.CustomMiddleware.Add(new ConnectionLogMiddleware(log));
-                        }
-                    }
-
-                    if (!conf.RootDir.Exists)
-                    {
-                        conf.RootDir.Create();
-                    }
-
-                    //Get all virtual hosts configurations and add them to the domain
-                    foreach (string hostname in hostnames)
-                    {
-                        VirtualHostConfig clone = conf.Clone();                      
-                        clone.Hostname = hostname.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName(), StringComparison.OrdinalIgnoreCase);
-                        //Add each config with new hostname to the domain
-                        domain.WithVirtualHost(clone);
-                    }
-
-                    //print found host to log
-                    {
-                        //Log the 
-                        log.Information(
-                            FOUND_VH_TEMPLATE,
-                            hostnames,
-                            conf.RootDir.FullName,
-                            conf.TransportEndpoint,
-                            traceCons,
-                            conf.Certificate != null,
-                            conf.Certificate.IsClientCertRequired(),
-                            conf.WhiteList?.ToArray(),
-                            conf.DownStreamServers?.ToArray(),
-                            conf.AllowCors,
-                            conf.AllowedCorsAuthority,
-                            conf.FailureFiles.Select(p => (int)p.Key).ToArray()
-                        );
-                    }
-                }
-                return true;
-            }
-            catch (KeyNotFoundException kne)
-            {
-                log.Warn("Missing required configuration varaibles {var}", kne.Message);
-            }
-            catch (FormatException fe)
-            {
-                log.Error("Invalid IP address {err}", fe.Message);
-            }
-            catch(Exception ex)
-            {
-                log.Error(ex, "Failed to initialize virtual hosts");
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Loads the static <see cref="HttpConfig"/> object
-        /// from the application config
-        /// </summary>
-        /// <param name="config">The application config</param>
-        /// <returns>Null if the configuration object is unusable, a new <see cref="HttpConfig"/> struct if parsing was successful</returns>
-        private static HttpConfig? GetHttpConfig(JsonDocument config, ProcessArguments args, ServerLogger logger)
-        {
-            try
-            {
-                //Get the http element
-                IReadOnlyDictionary<string, JsonElement> httpEl = config.RootElement.GetProperty(HTTP_CONF_PROP_NAME)
-                                                                            .EnumerateObject()
-                                                                            .ToDictionary(static k => k.Name, static v => v.Value);
-
-                IHttpCompressorManager? compressorManager = LoadOrDefaultCompressor(args, config, logger);
-
-                HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool(args.ZeroAllocations))
-                {
-                    RequestDebugLog = args.LogHttp ? logger.AppLog : null,
-                    DefaultHttpVersion = HttpHelpers.ParseHttpVersion(httpEl["default_version"].GetString()),
-                    MaxUploadSize = httpEl["max_entity_size"].GetInt64(),
-                    CompressionLimit = (int)httpEl["compression_limit"].GetUInt32(),
-                    CompressionMinimum = (int)httpEl["compression_minimum"].GetUInt32(),
-                    MaxFormDataUploadSize = (int)httpEl["multipart_max_size"].GetUInt32(),
-                    ConnectionKeepAlive = httpEl["keepalive_ms"].GetTimeSpan(TimeParseType.Milliseconds),
-                    ActiveConnectionRecvTimeout = (int)httpEl["recv_timeout_ms"].GetUInt32(),
-                    SendTimeout = (int)httpEl["send_timeout_ms"].GetUInt32(),
-                    MaxRequestHeaderCount = (int)httpEl["max_request_header_count"].GetUInt32(),
-                    MaxOpenConnections = (int)httpEl["max_connections"].GetUInt32(),
-                    MaxUploadsPerRequest = httpEl["max_uploads_per_request"].GetUInt16(),
-
-                    DebugPerformanceCounters = args.HasArgument("--http-counters"),
-
-                    //Buffer config update
-                    BufferConfig = new()
-                    {
-                        RequestHeaderBufferSize = httpEl["header_buf_size"].GetInt32(),
-                        ResponseHeaderBufferSize = httpEl["response_header_buf_size"].GetInt32(),
-                        FormDataBufferSize = httpEl["multipart_max_buf_size"].GetInt32(),
-                        ResponseBufferSize = httpEl["response_buf_size"].GetInt32(),
-
-                        //Only set chunk buffer size if compression is enabled
-                        ChunkedResponseAccumulatorSize = compressorManager != null ? CHUNCKED_ACC_BUFFER_SIZE : 0
-                    },
-
-                    HttpEncoding = Encoding.ASCII,
-
-                    //Init compressor
-                    CompressorManager = compressorManager
-                };
-                return conf.DefaultHttpVersion == Net.Http.HttpVersion.None
-                    ? throw new ServerConfigurationException("Your default HTTP version is invalid, specify an RFC formatted http version 'HTTP/x.x'")
-                    : conf;
-            }
-            catch (KeyNotFoundException kne)
-            {
-                logger.AppLog.Error("Missing required HTTP configuration variables {var}", kne.Message);
-            }
-            catch (Exception ex)
-            {
-                logger.AppLog.Error(ex, "Check your HTTP configuration object");
-            }
-            return null;
-        }
-
-        private delegate void OnHttpLibLoad(ILogProvider log, JsonElement? configData);
-
-        private static IHttpCompressorManager? LoadOrDefaultCompressor(ProcessArguments args, JsonDocument config, ServerLogger logger)
-        {
-            const string EXTERN_LIB_LOAD_METHOD_NAME = "OnLoad";
-
-            if (args.HasArgument("--compression-off"))
-            {
-                logger.AppLog.Debug("Compression disabled by cli args");
-                return null;
-            }
-
-            //Try to get the compressor assembly file from config
-            if (!config.RootElement.TryGetProperty(HTTP_COMPRESSION_PROP_NAME, out JsonElement compAsmEl))
-            {
-                logger.AppLog.Debug("Falling back to default http compressor");
-                return new FallbackCompressionManager();
-            }
-
-            //Try to get the compressor assembly file from config
-            string? compAsmPath = compAsmEl.GetString();
-
-            if (string.IsNullOrWhiteSpace(compAsmPath))
-            {
-                logger.AppLog.Debug("Falling back to default http compressor");
-                return new FallbackCompressionManager();
-            }
-
-            //Make sure the file exists
-            if (!FileOperations.FileExists(compAsmPath))
-            {
-                logger.AppLog.Warn("The specified http compressor assembly file does not exist, falling back to default http compressor");
-                return new FallbackCompressionManager();
-            }
-
-            //Try to load the assembly into our alc, we dont need to worry about unloading
-            ManagedLibrary lib = ManagedLibrary.LoadManagedAssembly(compAsmPath, AssemblyLoadContext.Default);
-
-            logger.AppLog.Debug("Loading user defined compressor assembly\n{asm}", lib.AssemblyPath);
-
-            try
-            {
-                //Load the compressor manager type from the assembly
-                IHttpCompressorManager instance = lib.LoadTypeFromAssembly<IHttpCompressorManager>();
-
-                /*
-                 * We can provide some optional library initialization functions if the library 
-                 * supports it. First we can allow the library to write logs to our log provider
-                 * and second we can provide the library with the raw configuration data as a byte array
-                 */
-
-                //Invoke the on load method with the logger and config data
-                OnHttpLibLoad? onlibLoadConfig = ManagedLibrary.TryGetMethod<OnHttpLibLoad>(instance, EXTERN_LIB_LOAD_METHOD_NAME);
-                onlibLoadConfig?.Invoke(logger.AppLog, config.RootElement);
-
-                //Invoke parameterless on load method
-                Action? onLibLoad = ManagedLibrary.TryGetMethod<Action>(instance, EXTERN_LIB_LOAD_METHOD_NAME);
-                onLibLoad?.Invoke();
-
-                logger.AppLog.Verbose("User-defined compressor library loaded");
-
-                return instance;
-            }
-            //Catch TIE and throw the inner exception for cleaner debug
-            catch(TargetInvocationException te) when (te.InnerException != null)
-            {
-                throw te.InnerException;
-            }
-        }       
-
-        private static void StdInListenerDoWork(ManualResetEvent shutdownEvent, ILogProvider appLog, HttpServiceStack serviceStack)
-        {
-            appLog.Information("Listening for commands on stdin");
-
-            while (shutdownEvent.WaitOne(0) == false)
-            {
-                string[]? s = Console.ReadLine()?.Split(' ');
-                if (s == null)
-                {
-                    continue;
-                }
-                switch (s[0].ToLower(null))
-                {
-                    //handle plugin
-                    case "p":
-                        {
-                            if (s.Length < 3)
-                            {
-                                Console.WriteLine("Plugin name and command are required");
-                                break;
-                            }
-
-                            string message = string.Join(' ', s[2..]);
-
-                            bool sent = serviceStack.PluginManager.SendCommandToPlugin(s[1], message, StringComparison.OrdinalIgnoreCase);
-
-                            if (!sent)
-                            {
-                                Console.WriteLine("Plugin not found");
-                            }
-                        }
-                        break;
-
-                    case "cmd":
-                        {
-                            if (s.Length < 2)
-                            {
-                                Console.WriteLine("Plugin name is required");
-                                break;
-                            }
-
-                            //Enter plugin command loop
-                            EnterPluginLoop(s[1], serviceStack.PluginManager);
-                        }
-                        break;
-                    case "reload":
-                        {
-                            try
-                            {
-                                //Reload all plugins
-                                serviceStack.PluginManager.ForceReloadAllPlugins();
-                            }
-                            catch (Exception ex)
-                            {
-                                appLog.Error(ex);
-                            }
-                        }
-                        break;
-                    case "memstats":
-                        {
-                            const string MANAGED_HEAP_STATS = @"
-         Managed Heap Stats
---------------------------------------
- Collections: 
-   Gen0: {g0} Gen1: {g1} Gen2: {g2}
-
- Heap:
-  High Watermark:    {hw} KB
-  Last GC Heap Size: {hz} KB
-  Current Load:      {ld} KB
-  Fragmented:        {fb} KB
-
- Heap Info:
-  Last GC concurrent? {con}
-  Last GC compacted?  {comp}
-  Pause time:         {pt} %
-  Pending finalizers: {pf}
-  Pinned objects:     {po}
-";
-
-                            //Collect gc info for managed heap stats
-                            int gen0 = GC.CollectionCount(0);
-                            int gen1 = GC.CollectionCount(1);
-                            int gen2 = GC.CollectionCount(2);
-                            GCMemoryInfo mi = GC.GetGCMemoryInfo();
-
-                            appLog.Debug(MANAGED_HEAP_STATS,
-                                gen0,
-                                gen1,
-                                gen2,
-                                mi.HighMemoryLoadThresholdBytes / 1024,
-                                mi.HeapSizeBytes / 1024,
-                                mi.MemoryLoadBytes / 1024,
-                                mi.FragmentedBytes / 1024,
-                                mi.Concurrent,
-                                mi.Compacted,
-                                mi.PauseTimePercentage,
-                                mi.FinalizationPendingCount,
-                                mi.PinnedObjectsCount);
-
-                            //Get heap stats
-                            HeapStatistics hs = MemoryUtil.GetSharedHeapStats();
-
-                            const string HEAPSTATS = @"
-    Unmanaged Heap Stats
----------------------------
- userHeap? {rp}
- Allocated bytes:   {ab}
- Allocated handles: {h}
- Max block size:    {mb}
- Min block size:    {mmb}
- Max heap size:     {hs}
-";
-
-                            //Print unmanaged heap stats
-                            appLog.Debug(HEAPSTATS,
-                                MemoryUtil.IsUserDefinedHeap,
-                                hs.AllocatedBytes,
-                                hs.AllocatedBlocks,
-                                hs.MaxBlockSize,
-                                hs.MinBlockSize,
-                                hs.MaxHeapSize);
-                        }
-                        break;
-                    case "collect":
-                        serviceStack.CollectCache();
-                        GC.Collect(2, GCCollectionMode.Forced, false, true);
-                        GC.WaitForFullGCComplete();
-                        break;
-                    case "stop":
-                        shutdownEvent.Set();
-                        return;
-                }
-            }
-        }
-
+      
         private static void InitAppDomainListener(ProcessArguments args, ILogProvider log)
         {
             AppDomain currentDomain = AppDomain.CurrentDomain;
@@ -869,37 +338,10 @@ Starting...
             }
         }
 
-        private static void EnterPluginLoop(string pluignName, IHttpPluginManager man)
+        private static WebserverBase GetWebserver(ServerLogger logger, IServerConfig config, ProcessArguments procArgs)
         {
-            Console.WriteLine("Entering plugin {0}. Type 'exit' to leave", pluignName);
-
-            while (true)
-            {
-                Console.Write("{0}>", pluignName);
-
-                string? input = Console.ReadLine();
-
-                if(string.IsNullOrWhiteSpace(input))
-                {
-                    Console.WriteLine("Please enter a command or type 'exit' to leave");
-                    continue;
-                }
-
-                if(input.AsSpan().Trim().Equals("exit", StringComparison.OrdinalIgnoreCase))
-                {
-                    break;
-                }
-
-                //Exec command
-                if(!man.SendCommandToPlugin(pluignName, input, StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine("Plugin does not exist exiting loop");
-                    break;
-                }
-            }
+            return new ReleaseWebserver(logger, config, procArgs);
         }
-
-        private static void CollectCache(this HttpServiceStack controller) => controller.Servers.TryForeach(static server => (server as HttpServer)!.CacheClear());
 
         private sealed class CertState
         {

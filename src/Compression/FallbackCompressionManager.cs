@@ -113,7 +113,13 @@ namespace VNLib.WebServer.Compression
              * 
              * See vnlib_compress project for more details.
              */
-            status = encoder.Compress(default, output.Span, out _, out int bytesWritten, true);
+            status = encoder.Compress(
+                source: default, 
+                destination: output.Span,
+                bytesConsumed: out _,
+                bytesWritten: out int bytesWritten,
+                isFinalBlock: true
+            );
 
             /*
              * Function can return Done or DestinationTooSmall if there is still more data

@@ -19,49 +19,17 @@ tasks:
      - powershell -Command "Get-ChildItem -Include *.cs,*.csproj -Recurse | Where { \$_.FullName -notlike '*\obj\*' } | Resolve-Path -Relative | tar --files-from - -czf '{{.TARGET}}/src.tgz'"
 
      #run post in debug mode
-     - task: postbuild
-       vars: 
-         BUILD_MODE: debug 
-         TARGET_OS: linux-x64
+     - for: [ linux-x64, linux-arm, linux-arm64, win-x64, osx-x64 ]
+       task: postbuild
+       vars: { BUILD_MODE: debug, TARGET_OS: '{{.ITEM}}' }
 
-     - task: postbuild
-       vars: 
-         BUILD_MODE: debug 
-         TARGET_OS: win-x64
-    
-     - task: postbuild
-       vars: 
-         BUILD_MODE: debug 
-         TARGET_OS: osx-x64
-
-     - task: postbuild
-       vars: 
-         BUILD_MODE: debug 
-         TARGET_OS: linux-arm64   
-
-     #remove uncessary files from the release dir
+    #remove uncessary files from the release dir
      - powershell -Command "Get-ChildItem -Recurse '{{.RELEASE_DIR}}/' -Include *.pdb,*.xml | Remove-Item"
 
-     #run post in release mode
-     - task: postbuild
-       vars: 
-         BUILD_MODE: release 
-         TARGET_OS: linux-x64
-
-     - task: postbuild
-       vars: 
-         BUILD_MODE: release 
-         TARGET_OS: win-x64
-    
-     - task: postbuild
-       vars: 
-         BUILD_MODE: release 
-         TARGET_OS: osx-x64
-
-     - task: postbuild
-       vars: 
-         BUILD_MODE: release 
-         TARGET_OS: linux-arm64
+     - for: [ linux-x64, linux-arm, linux-arm64, win-x64, osx-x64 ]
+       task: postbuild
+       vars: { BUILD_MODE: release, TARGET_OS: '{{.ITEM}}' }
+ 
 
   postbuild:
     dir: '{{.USER_WORKING_DIR}}'
@@ -71,16 +39,18 @@ tasks:
     cmds:     
      #copy and readme to target
      - cd .. && powershell -Command "Copy-Item -Path ./build.readme.txt -Destination '{{.BUILD_DIR}}/readme.txt'"
+     
+     #copy release taskfile
+     #- cd .. && powershell -Command "Copy-Item -Path ./release.taskfile.yaml -Destination '{{.BUILD_DIR}}/Taskfile.yaml'"
 
      #tar outputs
      - cd "{{.BUILD_DIR}}" && tar -czf "{{.TARGET}}/{{.TARGET_OS}}-{{.BUILD_MODE}}.tgz" .
-
 
     #Remove the output dirs on clean
   clean:
     dir: '{{.USER_WORKING_DIR}}'
     ignore_error: true
     cmds:
-     - cmd: powershell Remove-Item -Recurse './bin'
-     - cmd: powershell Remove-Item -Recurse './obj'
+     - for: [ bin/, obj/ ]
+       cmd: powershell Remove-Item -Recurse -Force '{{.USER_WORKING_DIR}}/{{.ITEM}}'
   

@@ -25,6 +25,7 @@
 using System;
 using System.Net;
 using System.Threading.Tasks;
+using System.Collections.Frozen;
 
 using VNLib.Net.Http;
 using VNLib.Utils.Logging;
@@ -32,16 +33,21 @@ using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.Extensions;
 using VNLib.Plugins.Essentials.Middleware;
 
+using VNLib.WebServer.Config.Model;
+
 namespace VNLib.WebServer.Middlewares
 {
+
     /// <summary>
     /// Adds HTTP CORS protection to http servers
     /// </summary>
     /// <param name="Log"></param>
     /// <param name="VirtualHostOptions"></param>
     [MiddlewareImpl(MiddlewareImplOptions.SecurityCritical)]
-    internal sealed class CORSMiddleware(ILogProvider Log, VirtualHostConfig VirtualHostOptions) : IHttpMiddleware
+    internal sealed class CORSMiddleware(ILogProvider Log, CorsSecurityConfig secConfig) : IHttpMiddleware
     {
+        private readonly FrozenSet<string> _corsAuthority = secConfig.AllowedCorsAuthority.ToFrozenSet();
+
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {
             //Check coors enabled
@@ -51,13 +57,13 @@ namespace VNLib.WebServer.Middlewares
             /*
              * Deny/allow cross site/cors requests at the site-level
              */
-            if (VirtualHostOptions.AllowCors!.Value)
+            if (!secConfig.DenyCorsCons)
             {
                 //Confirm the origin is allowed during cors connections
-                if (entity.Server.CrossOrigin && VirtualHostOptions.AllowedCorsAuthority != null)
+                if (entity.Server.CrossOrigin && _corsAuthority.Count > 0)
                 {
                     //If the authority is not allowed, deny the connection
-                    if (!VirtualHostOptions.AllowedCorsAuthority.Contains(entity.Server.Origin!.Authority))
+                    if (!_corsAuthority.Contains(entity.Server.Origin!.Authority))
                     {
                         Log.Debug("Denied a connection from a cross-origin site {s}, the origin was not whitelisted", entity.Server.Origin);
                         return ValueTask.FromResult(FileProcessArgs.Deny);
@@ -110,7 +116,7 @@ namespace VNLib.WebServer.Middlewares
             }
 
             //If same origin is supplied, enforce origin header on post/options/put/patch
-            if ("same-origin".Equals(entity.Server.Headers["Sec-Fetch-Site"], StringComparison.OrdinalIgnoreCase))
+            if (string.Equals("same-origin", entity.Server.Headers["Sec-Fetch-Site"], StringComparison.OrdinalIgnoreCase))
             {
                 //If method is not get/head, then origin is required
                 if ((entity.Server.Method & (HttpMethod.GET | HttpMethod.HEAD)) == 0 && entity.Server.Origin == null)

@@ -42,10 +42,9 @@ namespace VNLib.WebServer.TcpMemoryPool
         /// <summary>
         /// Gets an unmanaged memory pool provider for the TCP server to alloc buffers from
         /// </summary>
-        /// <typeparam name="T">The pool type to create</typeparam>
         /// <returns>The memory pool</returns>
         public static MemoryPool<byte> GetPool(bool zeroOnAlloc)
-        {           
+        {
             //Use the shared heap impl. which also allows diagnostics, and is tuned
             return new HttpMemoryPool(zeroOnAlloc);
         }

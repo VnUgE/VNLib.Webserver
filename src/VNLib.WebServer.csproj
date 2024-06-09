@@ -11,6 +11,12 @@
     <RetainVMGarbageCollection>true</RetainVMGarbageCollection>
     <StartupObject>VNLib.WebServer.Entry</StartupObject>
   </PropertyGroup>
+  
+  <!-- Dotnet tool stuff -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>VNLib.WebServer</ToolCommandName>
+  </PropertyGroup>
 
   <PropertyGroup>
     <AnalysisLevel Condition="'$(BuildingInsideVisualStudio)' == true">latest-all</AnalysisLevel>
@@ -59,7 +65,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Serilog" Version="3.1.1" />
+    <PackageReference Include="Serilog" Version="4.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
   </ItemGroup>

@@ -3,10 +3,10 @@
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
-* File: JsonConfigOptions.cs 
+* File: CorsSecurityConfig.cs 
 *
-* JsonConfigOptions.cs is part of VNLib.WebServer which is part of 
-* the larger VNLib collection of libraries and utilities.
+* CorsSecurityConfig.cs is part of VNLib.WebServer which is part of the 
+* larger VNLib collection of libraries and utilities.
 *
 * VNLib.WebServer is free software: you can redistribute it and/or modify 
 * it under the terms of the GNU General Public License as published
@@ -22,21 +22,20 @@
 * along with VNLib.WebServer. If not, see http://www.gnu.org/licenses/.
 */
 
-using System.Text.Json;
+using System;
+using System.Text.Json.Serialization;
 
-namespace VNLib.WebServer.Config
+namespace VNLib.WebServer.Config.Model
 {
-    internal static class JsonConfigOptions
+    internal class CorsSecurityConfig
     {
-        private static readonly JsonSerializerOptions _ops = new()
-        {
-            AllowTrailingCommas = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-        };
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; } = true;
 
-        public static T? DeserializeElement<T>(this JsonElement el)
-        {
-            return el.Deserialize<T>(_ops);
-        }
+        [JsonPropertyName("deny_cors_connections")]
+        public bool DenyCorsCons { get; set; } = false;
+
+        [JsonPropertyName("cors_allowed_authority")]
+        public string[] AllowedCorsAuthority { get; set; } = Array.Empty<string>();
     }
 }

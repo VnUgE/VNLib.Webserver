@@ -4,8 +4,8 @@ version: '3'
 
 vars:
   INT_DIR: '{{.SCRATCH_DIR}}/obj/{{.MODULE_NAME}}/'
-  MS_ARGS: '--sc false /p:RunAnalyzersDuringBuild=false /p:IntermediateOutputPath="{{.INT_DIR}}" /p:UseCommonOutputDirectory=true /p:BuildInParallel=true /p:MultiProcessorCompilation=true /p:ErrorOnDuplicatePublishOutputFiles=false'
-
+  MS_ARGS: '/p:RunAnalyzersDuringBuild=false /p:IntermediateOutputPath="{{.INT_DIR}}" /p:UseCommonOutputDirectory=true /p:BuildInParallel=true /p:MultiProcessorCompilation=true /p:ErrorOnDuplicatePublishOutputFiles=false'
+  #PACK_OUT: '{{.OUTPUT_DIR}}/{{.HEAD_SHA}}/pkg'
 
 tasks:
   #called by build pipeline to sync repo
@@ -25,11 +25,14 @@ tasks:
 
      #managed source supports arm32 unmanaged does not
     - for: [ win-x64, linux-x64, osx-x64,  linux-arm64, linux-arm ]
-      cmd: powershell -Command 'dotnet publish -c debug -r {{ .ITEM }} {{.BUILD_FLAGS}} {{.MS_ARGS}}' 
+      cmd: powershell -Command 'dotnet publish -c debug -r {{ .ITEM }} {{.BUILD_FLAGS}} --sc false {{.MS_ARGS}}' 
     
     #build release mode after all debug builds
     - for: [ win-x64, linux-x64, osx-x64,  linux-arm64, linux-arm ]
-      cmd: powershell -Command 'dotnet publish -c release -r {{ .ITEM }} {{.BUILD_FLAGS}} {{.MS_ARGS}}'
+      cmd: powershell -Command 'dotnet publish -c release -r {{ .ITEM }} {{.BUILD_FLAGS}} --sc false {{.MS_ARGS}}'
+
+    #package as a tool
+    #- dotnet pack -c debug {{.MS_ARGS}} -o "{{.PACK_OUT}}/debug/" -p:PackageVersion={{.BUILD_VERSION}}
   
   postbuild_success:
     cmds: 
@@ -37,11 +40,11 @@ tasks:
      - git archive --format {{.ARCHIVE_FILE_FORMAT}} --output {{.ARCHIVE_FILE_NAME}} HEAD
 
 
-#called by build pipeline to clean module
+  #called by build pipeline to clean module
   clean:
     dir: '{{.USER_WORKING_DIR}}'
+    ignore_error: true
     cmds:
     #clean solution
     - dotnet clean /p:BuildInParallel=true /p:MultiProcessorCompilation=true
     - cmd: powershell -Command "rm {{ .ARCHIVE_FILE_NAME }} --Force" 
-      ignore_error: true

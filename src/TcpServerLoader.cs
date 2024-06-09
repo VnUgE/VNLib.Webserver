@@ -26,6 +26,7 @@ using System;
 using System.Data;
 using System.Linq;
 using System.Text.Json;
+using System.Net.Sockets;
 using System.Net.Security;
 using System.Text.Json.Serialization;
 
@@ -42,19 +43,31 @@ using VNLib.WebServer.RuntimeLoading;
 
 namespace VNLib.WebServer
 {
-    internal sealed class TcpServerLoader(JsonDocument hostConfig, ProcessArguments args, ILogProvider tcpLogger)
+    internal sealed class TcpServerLoader(IServerConfig hostConfig, ProcessArguments args, ILogProvider tcpLogger)
     {
         const int CacheQuotaDefault = 0;    //Disable cache quota by default, allows unlimited cache
 
         private readonly LazyInitializer<TcpConfigJson> _conf = new(() =>
         {
-            if(hostConfig.RootElement.TryGetProperty(Entry.TCP_CONF_PROP_NAME, out JsonElement tcpEl))
+            JsonElement rootElement = hostConfig.GetDocumentRoot();
+
+            if(rootElement.TryGetProperty(Entry.TCP_CONF_PROP_NAME, out JsonElement tcpEl))
             {
-                return tcpEl.Deserialize<TcpConfigJson>(JsonConfigOptions.SerilaizerOptions)!;
+                return tcpEl.DeserializeElement<TcpConfigJson>()!;
             }
 
             return new TcpConfigJson();
         });
+
+        /// <summary>
+        /// The user confiugred TCP transmission buffer size
+        /// </summary>
+        public int TcpTxBufferSize => _conf.Instance.TcpSendBufferSize;
+
+        /// <summary>
+        /// The user-conifuigred TCP receive buffer size
+        /// </summary>
+        public int TcpRxBufferSize => _conf.Instance.TcpRecvBufferSize;
 
         /// <summary>
         /// Creates and loads a transport provider for a service group
@@ -72,7 +85,9 @@ namespace VNLib.WebServer
                 //If any hosts have ssl enabled, all shared endpoints MUST include a certificate to be bound to the same endpoint
                 if (!group.Hosts.All(static h => h.TransportInfo.Certificate != null))
                 {
-                    throw new ServerConfigurationException("One or more service hosts declared a shared endpoint with SSL enabled but not every host declared an SSL certificate for the shared interface");
+                    throw new ServerConfigurationException(
+                        "One or more service hosts declared a shared endpoint with SSL enabled but not every host declared an SSL certificate for the shared interface"
+                    );
                 }
 
                 //Build the server auth options for this transport provider
@@ -90,7 +105,9 @@ namespace VNLib.WebServer
                 threadCount = (uint)Environment.ProcessorCount;
             }
 
-            TcpConfigJson basConfig = _conf.Instance;
+            TcpConfigJson baseConfig = _conf.Instance;
+
+            baseConfig.ValidateConfig();
 
             //Init a new TCP config
             TCPConfig tcpConf = new()
@@ -104,16 +121,18 @@ namespace VNLib.WebServer
                 //Service endpoint to listen on
                 LocalEndPoint = group.ServiceEndpoint,
 
-                MaxConnections = basConfig.MaxConnections,
+                MaxConnections = baseConfig.MaxConnections,
 
                 //Copy from base config
-                TcpKeepAliveTime = basConfig.TcpKeepAliveTime,
-                KeepaliveInterval = basConfig.KeepaliveInterval,
-                TcpKeepalive = basConfig.TcpKeepAliveTime > 0,  //Enable keepalive if user specifies a duration
+                TcpKeepAliveTime = baseConfig.TcpKeepAliveTime,
+                KeepaliveInterval = baseConfig.KeepaliveInterval,
+                TcpKeepalive = baseConfig.TcpKeepAliveTime > 0,  //Enable keepalive if user specifies a duration
                
-                MaxRecvBufferData = basConfig.MaxRecvBufferData,
-                BackLog = basConfig.BackLog,
+                MaxRecvBufferData = baseConfig.MaxRecvBufferData,
+                BackLog = baseConfig.BackLog,
                 DebugTcpLog = args.HasArgument("--log-transport"),
+
+                OnSocketCreated = OnSocketConfiguring,
 
                 //Init buffer pool
                 BufferPool = PoolManager.GetPool(args.ZeroAllocations)
@@ -132,6 +151,15 @@ namespace VNLib.WebServer
 
         }
 
+        private void OnSocketConfiguring(Socket serverSock)
+        {
+            TcpConfigJson baseConf = _conf.Instance;
+
+            serverSock.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.NoDelay, baseConf.NoDelay);
+            serverSock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendBuffer, baseConf.TcpSendBufferSize);
+            serverSock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveBuffer, baseConf.TcpRecvBufferSize);
+        }
+
         sealed class TcpConfigJson
         {
             [JsonPropertyName("keepalive_sec")]
@@ -148,6 +176,33 @@ namespace VNLib.WebServer
 
             [JsonPropertyName("max_connections")]
             public long MaxConnections { get; set; } = long.MaxValue;
+
+            [JsonPropertyName("no_delay")]
+            public bool NoDelay { get; set; } = false;
+
+            /*
+             * Buffer sizes are a pain, this is a good default size for medium bandwith connections (100mbps)
+             * using the BDP calculations
+             * 
+             *   BDP = Bandwidth * RTT  
+             */
+
+            [JsonPropertyName("tx_buffer")]
+            public int TcpSendBufferSize { get; set; } = 625 * 1024;
+
+            [JsonPropertyName("rx_buffer")]
+            public int TcpRecvBufferSize { get; set; } = 625 * 1024;
+
+
+            public void ValidateConfig()
+            {
+                Validate.EnsureRange(TcpKeepAliveTime, 0, 60);
+                Validate.EnsureRange(KeepaliveInterval, 0, 60);               
+                Validate.EnsureRange(BackLog, 0, 10000);
+                Validate.EnsureRange(MaxConnections, 0, long.MaxValue);
+                Validate.EnsureRange(MaxRecvBufferData, 0, 10 * (1024 * 1024)); //10MB
+                Validate.EnsureRange(TcpSendBufferSize, 0, 10 * (1024 * 1024)); //10MB
+            }
         }
     }
 }

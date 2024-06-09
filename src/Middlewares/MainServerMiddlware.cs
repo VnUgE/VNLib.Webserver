@@ -40,7 +40,7 @@ namespace VNLib.WebServer.Middlewares
     /// </summary>
     /// <param name="Log"></param>
     /// <param name="VirtualHostOptions"></param>
-    internal sealed class MainServerMiddlware(ILogProvider Log, VirtualHostConfig VirtualHostOptions) : IHttpMiddleware
+    internal sealed class MainServerMiddlware(ILogProvider Log, VirtualHostConfig VirtualHostOptions, bool forcePorts) : IHttpMiddleware
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {
@@ -62,7 +62,9 @@ namespace VNLib.WebServer.Middlewares
             }
 
             //If not behind upstream server, uri ports and server ports must match
-            if (!entity.IsBehindDownStreamServer && !entity.Server.EnpointPortsMatch())
+            bool enforcePortCheck = !entity.IsBehindDownStreamServer && forcePorts;
+           
+            if (enforcePortCheck && !entity.Server.EnpointPortsMatch())
             {
                 Log.Debug("Connection {ip} received on port {p} but the client host port did not match at {pp}",
                     entity.TrustedRemoteIp,

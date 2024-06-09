@@ -36,6 +36,8 @@ using VNLib.Net.Http;
 using VNLib.Plugins.Essentials;
 using VNLib.Plugins.Essentials.Middleware;
 
+using VNLib.WebServer.Config.Model;
+
 namespace VNLib.WebServer.Middlewares
 {
     /*
@@ -47,9 +49,9 @@ namespace VNLib.WebServer.Middlewares
      * load on the compressor instead of a zero filled buffer
      */
 
-    internal sealed class BenchmarkMiddleware(int fileSize, bool random) : IHttpMiddleware
+    internal sealed class BenchmarkMiddleware(BenchmarkConfig config) : IHttpMiddleware
     {
-        private readonly MemoryManager<byte> data = AllocBuffer(fileSize, random);
+        private readonly MemoryManager<byte> data = AllocBuffer(config.Size, config.Random);
 
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {

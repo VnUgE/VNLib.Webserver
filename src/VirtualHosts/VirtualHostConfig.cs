@@ -56,11 +56,6 @@ namespace VNLib.WebServer
         }
 
         /// <summary>
-        /// Endables cross origin resoruce sharing protections
-        /// </summary>
-        public bool? AllowCors { get; init; }
-
-        /// <summary>
         /// A regex filter instance to filter incoming filesystem paths
         /// </summary>
         public Regex? PathFilter { get; init; }
@@ -74,12 +69,6 @@ namespace VNLib.WebServer
         /// The default response entity cache value
         /// </summary>
         public TimeSpan CacheDefault { get; init; }
-
-        /// <summary>
-        /// A collection of allowed cors sites, otherwise defaults to the 
-        /// connections supplied origin authority
-        /// </summary>
-        public FrozenSet<string>? AllowedCorsAuthority { get; init; }
 
         /// <summary>
         /// A collection of in-memory files to send in response to processing error

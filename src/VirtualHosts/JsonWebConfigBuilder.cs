@@ -154,8 +154,7 @@ namespace VNLib.WebServer
 
             Validate.EnsureNotNull(iFace.Address, "The interface IP address is required");
             Validate.EnsureValidIp(iFace.Address, "The interface IP address is invalid");
-            Validate.Assert(iFace.Port > 0, "The interface port must be greater than 0");
-            Validate.Assert(iFace.Port < 65536, "The interface port must be less than 65536");
+            Validate.EnsureRange(iFace.Port, 1, 65535, "Interface port");
 
             return iFace;
         }

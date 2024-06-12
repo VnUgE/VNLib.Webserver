@@ -88,8 +88,6 @@ namespace VNLib.WebServer.Bootstrap
         ///<inheritdoc/>
         protected override PluginStackBuilder? ConfigurePlugins()
         {
-            JsonElement confEl = config.GetDocumentRoot();
-
             //do not load plugins if disabled
             if (args.HasArgument("--no-plugins"))
             {
@@ -97,13 +95,15 @@ namespace VNLib.WebServer.Bootstrap
                 return null;
             }
 
+            JsonElement confEl = config.GetDocumentRoot();           
+
             if (!confEl.TryGetProperty(PLUGINS_CONFIG_PROP_NAME, out JsonElement plCfg))
             {
                 logger.AppLog.Debug("No plugin configuration found");
                 return null;
             }
 
-            ServerPluginConfig? conf = confEl.DeserializeElement<ServerPluginConfig>();
+            ServerPluginConfig? conf = plCfg.DeserializeElement<ServerPluginConfig>();
             Validate.EnsureNotNull(conf, "Your plugin configuration object is null or malformatted");
 
             if (!conf.Enabled)

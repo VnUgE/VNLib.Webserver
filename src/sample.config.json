@@ -7,8 +7,11 @@
     "keepalive_sec": 0,           //How long to wait for a keepalive response before closing the connection (0 to disable tcp keepalive)
     "keepalive_interval_sec": 0,  //How long to wait between keepalive probes
     "max_recv_size": 655360,      //640k absolute maximum recv buffer (defaults to OS socket buffer size)
-    "max_connections": 50000,     //Per server instance
-    "backlog": 1000               //OS socket backlog,
+    "max_connections": 50000,     //Per listener instance
+    "backlog": 1000,              //OS socket backlog,
+
+    "tx_buffer": 65536,           //OS socket send buffer size
+    "rx_buffer": 65536            //OS socket recv buffer size
   },
 
   "http": {
@@ -32,8 +35,6 @@
     "max_request_header_count": 50,
     //The maxium number of allowed network connections, before 503s will be issued automatically and connections closed
     "max_connections": 5000,
-    //The size in bytes of the buffer to use when writing response messages
-    "response_buf_size": 65535,
     //time (in ms) to wait for a response from an active connection in recv mode, before dropping it
     "recv_timeout_ms": 5000,
     //Time in ms to wait for the client to accept transport data before terminating the connection
@@ -56,27 +57,46 @@
 
       //Enables connection trace logging for this endpoint
       "trace": false,
+      //If set, requires the port in the host header to match the transport port
+      "force_port_check": false,
+
+      //Enable synthetic benchmarking
+      "benchmark": {
+        "enabled": false,
+        "random": true,
+        "size": 128
+      },
 
       //The interface to bind to, you may not mix TLS and non-TLS connections on the same interface
       "interface": {
         "address": "0.0.0.0",
-        "port": 8080
+        "port": 8080,
+
+        //TLS settings
+        "ssl": true, //Enables TLS for this interface for this host specifically
+        //Cert may be pem or pfx (include private key in pfx, or include private key in a pem file)
+        "certificate": "/path/to/cert.pfx|pem",
+        //A pem encoded private key, REQUIRED if using a PEM certificate, may be encrypted with a password
+        "private_key": "/path/to/private_key.pem",
+        //An optional password for the ssl private key
+        "password": "plain-text-password",
+        //requires that any client connecting to this host present a valid certificate
+        "client_cert_required": false
       },
 
       //The directory path for files served by this endpoint
       "path": "path/to/website/root",
 
-      //The hostname to listen for, "*" as wildcard, and "[system]" as the default hostname for the current machine
-      "hostname": "*",
-
-      //Or specify an array of hostnames instead, the hostnames array property takes priority over the single hostname property, each must be unique
-      //"hostnames": [ ],
+      //The hostname to listen for, "*" as wildcard, and "[system]" as the default hostname for the current machine. Must be unique
+      "hostnames": [ "*", "localhost" ],
 
       //Collection of "trusted" servers to allow proxy header support from
-      "downstream_servers": [],
+      "downstream_servers": [ "127.0.0.1" ],
 
-      //Specify a list of ip addresses that are allowed to connect to the server, 403 will be returned if connections are not on this list
-      //whitelist works behind a trusted downstream server that supports X-Forwared-For headers
+      /*
+        Specify a list of ip addresses that are allowed to connect to the server, 403 will be returned if connections are not on this list
+        whitelist works behind a trusted downstream server that supports X-Forwared-For headers
+      */
       "whitelist": [ "127.0.0.1" ],
 
       //A list of file extensions to deny access to, if a resource is requested and has one of the following extensions, a 404 is returned
@@ -90,25 +110,10 @@
 
       },
 
-      //Enables cors support for all endpoints and header controls, if false, all endpoints that are send CORS request headers will be forbidden, undefined disables
-      //"enable_cors": false,  //undefined | true | false
-
-      //"cors_allowed_authority": [],
-
-      //Define a TLS certificate (enables TLS on the interface)
-      "ssl": {
-
-        //Cert may be pem or pfx (include private key in pfx, or include private key in a pem file)
-        "cert": "/path/to/cert.pfx|pem",
-
-        //A pem encoded private key, REQUIRED if using a PEM certificate, may be encrypted with a password
-        "privkey": "/path/to/private_key.pem",
-
-        //An optional password for the ssl private key
-        "password": "plain-text-password",
-
-        //requires that any client connecting to this host present a valid certificate
-        "client_cert_required": false
+      "cors": {
+        "enabled": true,  //Enables cors protections for this host
+        "deny_cors_connections": false, //If true, all cors connections will be denied
+        "allowed_origins": [ "localhost:8089" ]
       },
 
       //A list of error file objects, files are loaded into memory (and watched for changes) and returned when the specified error code occurs
@@ -122,7 +127,8 @@
           "path": "path/to/403"
         }
       ],
-      //The default 
+
+      //Default http cache time for files
       "cache_default_sec": 864000
     }
   ],
@@ -130,6 +136,7 @@
 
   //Defines the directory where plugin's are to be loaded from
   "plugins": {
+    "enabled": true,  //Enable plugin loading
     //Hot-reload creates collectable assemblies that allow full re-load support in the host application, should only be used for development purposes!
     "hot_reload": false,
     "reload_delay_sec": 2,

@@ -113,7 +113,7 @@ namespace VNLib.WebServer.Compression
                 Action? onLibLoad = ManagedLibrary.TryGetMethod<Action>(instance, EXTERN_LIB_LOAD_METHOD_NAME);
                 onLibLoad?.Invoke();
 
-                logger.Verbose("User-defined compressor library loaded");
+                logger.Information("Custom compressor library loaded successfully");
 
                 return instance;
             }

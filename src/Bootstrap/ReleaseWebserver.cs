@@ -163,7 +163,7 @@ namespace VNLib.WebServer.Bootstrap
 
                 IHttpCompressorManager? compressorManager = HttpCompressor.LoadOrDefaultCompressor(procArgs, config, logger.AppLog);
 
-                HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool(procArgs.ZeroAllocations))
+                HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool(procArgs.ZeroAllocations), Encoding.ASCII)
                 {
                     //Init compressor
                     ActiveConnectionRecvTimeout     = gConf.RecvTimeoutMs,
@@ -173,7 +173,6 @@ namespace VNLib.WebServer.Bootstrap
                     CompressionMinimum              = gConf.CompressionMinimum,
                     DebugPerformanceCounters        = procArgs.HasArgument("--http-counters"),
                     DefaultHttpVersion              = HttpHelpers.ParseHttpVersion(gConf.DefaultHttpVersion),
-                    HttpEncoding                    = Encoding.ASCII,
                     MaxFormDataUploadSize           = gConf.MultipartMaxSize,
                     MaxUploadSize                   = gConf.MaxEntitySize,
                     MaxRequestHeaderCount           = gConf.MaxRequestHeaderCount,                    

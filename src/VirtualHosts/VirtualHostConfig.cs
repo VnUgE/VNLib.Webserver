@@ -79,7 +79,7 @@ namespace VNLib.WebServer
         /// <summary>
         /// Allows config to specify contant additional headers
         /// </summary>
-        public IReadOnlyList<KeyValuePair<string, string>> AdditionalHeaders { get; init; } = Array.Empty<KeyValuePair<string, string>>();
+        public KeyValuePair<string, string>[] AdditionalHeaders { get; init; } = Array.Empty<KeyValuePair<string, string>>();
 
         /// <summary>
         /// Contains internal headers used for specific purposes, cherrypicked from the config headers 

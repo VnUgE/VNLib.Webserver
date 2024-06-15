@@ -39,18 +39,6 @@ namespace VNLib.WebServer.Config.Model
         public long MaxEntitySize { get; set; } = long.MaxValue;
 
         /// <summary>
-        /// The maximum size of a response that can be compressed.
-        /// </summary>
-        [JsonPropertyName("compression_limit")]
-        public long CompressionLimit { get; set; } = long.MaxValue;
-
-        /// <summary>
-        /// The minimum size of a response that can be compressed.
-        /// </summary>
-        [JsonPropertyName("compression_minimum")]
-        public int CompressionMinimum { get; set; } = 0;        //No minimum    
-
-        /// <summary>
         /// The maximum size of a multipart form data upload.
         /// </summary>
         [JsonPropertyName("multipart_max_size")]
@@ -115,13 +103,17 @@ namespace VNLib.WebServer.Config.Model
         [JsonPropertyName("multipart_max_buf_size")]
         public int MultipartMaxBufSize { get; set; }
 
+        /// <summary>
+        /// The configuration for the HTTP compression settings.
+        /// </summary>
+        [JsonPropertyName("compression")]
+        public HttpCompressorConfig? Compression { get; set; } = new();
 
         public void ValidateConfig()
         {
             Validate.EnsureNotNull(DefaultHttpVersion, "Default HTTP version is required");
+
             Validate.EnsureRange(MaxEntitySize, 0, long.MaxValue);
-            Validate.EnsureRange(CompressionLimit, -1, long.MaxValue);
-            Validate.EnsureRange(CompressionMinimum, -1, int.MaxValue);
             Validate.EnsureRange(MultipartMaxSize, -1, int.MaxValue);
             Validate.EnsureRange(KeepAliveMs, -1, int.MaxValue);
 
@@ -135,6 +127,11 @@ namespace VNLib.WebServer.Config.Model
             Validate.EnsureRange(HeaderBufSize, 0, int.MaxValue);
             Validate.EnsureRange(ResponseHeaderBufSize, 0, int.MaxValue);
             Validate.EnsureRange(MultipartMaxBufSize, 0, int.MaxValue);
+
+            //Validate compression config
+            Validate.EnsureNotNull(Compression, "Compression configuration should not be set to null. Comment to enable defaults");
+            Validate.EnsureRange(Compression.CompressionMax, -1, long.MaxValue);
+            Validate.EnsureRange(Compression.CompressionMin, -1, int.MaxValue);
         }
     }
 }

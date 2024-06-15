@@ -38,117 +38,77 @@ using VNLib.Utils.Extensions;
 
 using VNLib.WebServer.Config;
 using VNLib.WebServer.Config.Model;
-using static VNLib.WebServer.Entry;
 
 namespace VNLib.WebServer
 {
 
-    internal sealed partial class JsonWebConfigBuilder(JsonElement rootEl, TimeSpan execTimeout, ILogProvider logger) 
+    internal sealed partial class JsonWebConfigBuilder(int index, JsonElement rootEl, TimeSpan execTimeout, ILogProvider logger) 
         : IVirtualHostConfigBuilder
     {
         //Use pre-compiled default regex
         private static readonly Regex DefaultRootRegex = MyRegex();
 
-        private readonly Dictionary<string, JsonElement> _rootConfig = rootEl.EnumerateObject().ToDictionary(static kv => kv.Name, static kv => kv.Value);
+        public readonly VirtualHostServerConfig VhConfig = GetVhConfig(rootEl);
+
+        private static VirtualHostServerConfig GetVhConfig(JsonElement rootEl)
+        {
+            VirtualHostServerConfig? conf = rootEl.DeserializeElement<VirtualHostServerConfig>();
+
+            Validate.EnsureNotNull(conf, "Empty virtual host configuration, check your virtual hosts array for an empty element");
+            Validate.EnsureNotNull(conf.DirPath, "A virtual host was defined without a root directory property: 'dirPath'");
+            Validate.EnsureNotNull(conf.Hostnames, "A virtual host was defined without a hostname property: 'hostnames'");
+            Validate.EnsureNotNull(conf.Interface, "An interface configuration is required for every virtual host");
+
+            return conf;
+        }
        
         ///<inheritdoc/>
         public VirtualHostConfig GetBaseConfig()
         {
-            string? rootDir = _rootConfig[SERVER_ROOT_PATH_PROP_NAME].GetString();
+            TransportInterface transport = GetInterface(VhConfig);
 
-            Validate.EnsureNotNull(rootDir, $"A virtual host was defined without a root directory property: '{SERVER_ROOT_PATH_PROP_NAME}'");
-
-            TransportInterface transport = GetInterface();
             X509Certificate? cert = transport.LoadCertificate();
 
             //Set cert state for client cert required
             cert?.IsClientCertRequired(transport.ClientCertRequired);
 
             //Declare the vh config
-            VirtualHostConfig vhConfig = new()
+            return new()
             {
                 //File root is required
-                RootDir = new(rootDir),
+                RootDir                 = new(VhConfig.DirPath!),
+                LogProvider             = logger,
+                Certificate             = cert,
+                ExecutionTimeout        = execTimeout,
+                WhiteList               = GetWhitelist(VhConfig),
+                DownStreamServers       = GetDownStreamServers(VhConfig),
+                ExcludedExtensions      = GetExlcudedExtensions(VhConfig),
+                DefaultFiles            = GetDefaultFiles(VhConfig),
+                TransportEndpoint       = transport.GetEndpoint(),
+                PathFilter              = GetPathFilter(VhConfig),
+                CacheDefault            = TimeSpan.FromSeconds(VhConfig.CacheDefaultTimeSeconds),
+                AdditionalHeaders       = GetConfigHeaders(VhConfig),
+                SpecialHeaders          = GetSpecialHeaders(VhConfig),
+                FailureFiles            = GetFailureFiles(VhConfig),
 
-                //Set optional whitelist
-                WhiteList = GetWhitelist(),
-
-                //Set required downstream servers
-                DownStreamServers = GetDownStreamServers(),
-
-                ExcludedExtensions = GetExlcudedExtensions(),
-                DefaultFiles = GetDefaultFiles(),
-                
-                Certificate = cert,
-
-                //Set inerface
-                TransportEndpoint = transport.GetEndpoint(),
-
-                PathFilter = GetPathFilter(),
-
-                //Default cache endpoint
-                CacheDefault = _rootConfig[SERVER_CACHE_DEFAULT_PROP_NAME].GetTimeSpan(TimeParseType.Seconds),
-
-                //Get the client additionals headers
-                AdditionalHeaders = GetConfigHeaders(),
-
-                //Get special headers
-                SpecialHeaders = GetSpecialHeaders(),
-
-                //execution timeout
-                ExecutionTimeout = execTimeout,
-
-                FailureFiles = GetFailureFiles(),
-
-                LogProvider = logger,
-                
                 //Hostname is ignored incase its an array of multiple names
             };
-
-            return vhConfig;
         }
     
         public string[] GetHostnames()
         {
-
-            //Allow hostnames element as an array or allow a single hostname property
-            string[] hostNames;
-
             //Try to get the array element first
-            if (_rootConfig.TryGetValue(SERVER_HOSTNAME_ARRAY_PROP_NAME, out JsonElement hnArrEl))
+            if (VhConfig.Hostnames is null || VhConfig.Hostnames.Length < 1)
             {
-                //Get the hostnames array, as a distinct list, to ingnore any repeats
-                hostNames = hnArrEl.EnumerateArray()
-                                    .Where(static p => p.GetString() != null)
-                                    .Select(static p => p.GetString()!)
-                                    .Distinct()
-                                    .ToArray();
-            }
-            else if (_rootConfig.TryGetValue(SERVER_HOSTNAME_PROP_NAME, out JsonElement hnEl))
-            {
-                //Select single hostname
-                hostNames =
-                [
-                    hnEl.GetString() ?? throw new ArgumentException($"A virtual host was defined without a hostname property: '{SERVER_HOSTNAME_PROP_NAME}'")
-                ];
-            }
-            else
-            {
-                throw new KeyNotFoundException("Missing the hostname or hostnames array elements in virtual host configuration");
+                throw new ServerConfigurationException($"Missing the hostname or hostnames array virtual host {index}");
             }
 
-            return hostNames;
+            return VhConfig.Hostnames;
         }
 
-        private TransportInterface GetInterface()
+        private static TransportInterface GetInterface(VirtualHostServerConfig conf)
         {
-            if (!_rootConfig.TryGetValue(SERVER_ENDPOINT_PROP_NAME, out JsonElement interfaceEl))
-            {
-                //Use the default config
-                return new();
-            }
-
-            TransportInterface? iFace = interfaceEl.DeserializeElement<TransportInterface>();
+            TransportInterface iFace = conf.Interface!;
 
             Validate.EnsureNotNull(iFace, "The interface configuration is required");
 
@@ -159,66 +119,63 @@ namespace VNLib.WebServer
             return iFace;
         }
 
-        private Regex GetPathFilter()
+        private static Regex GetPathFilter(VirtualHostServerConfig conf)
         {
             //Allow site to define a regex filter pattern
-            return _rootConfig.TryGetValue(SERVER_PATH_FILTER_PROP_NAME, out JsonElement rootRegexEl)
-                ? new(rootRegexEl.GetString()!)
-                : DefaultRootRegex;
+            return conf.PathFilter is not null ? new(conf.PathFilter!) : DefaultRootRegex;
         }
 
-        private FrozenDictionary<HttpStatusCode, FileCache> GetFailureFiles()
+        private FrozenDictionary<HttpStatusCode, FileCache> GetFailureFiles(VirtualHostServerConfig conf)
         {
             //if a failure file array is specified, capure all files and
-            if (_rootConfig.TryGetValue(SERVER_ERROR_FILE_PROP_NAME, out JsonElement errEl))
+            if (conf.ErrorFiles is null || conf.ErrorFiles.Length < 1)
             {
-                //Get the error files
-                IEnumerable<KeyValuePair<HttpStatusCode, string>> ffs = errEl.EnumerateArray()
-                        .Select(static f => new KeyValuePair<HttpStatusCode, string>(
-                            (HttpStatusCode)f.GetProperty("code").GetInt32(),
-                            f.GetProperty("path").GetString()!
-                        ));
+                return new Dictionary<HttpStatusCode, FileCache>().ToFrozenDictionary();
+            }
 
-                //Create the file cache dictionary
-                (HttpStatusCode, string, FileCache?)[] loadCache = ffs.Select(kv =>
+            //Get the error files
+            IEnumerable<KeyValuePair<HttpStatusCode, string>> ffs = conf.ErrorFiles
+                        .Select(static f => new KeyValuePair<HttpStatusCode, string>((HttpStatusCode)f.Code, f.Path!));
+
+            //Create the file cache dictionary
+            (HttpStatusCode, string, FileCache?)[] loadCache = ffs.Select(kv =>
                 {
                     FileCache? cached = FileCache.Create(kv.Key, kv.Value);
                     return (kv.Key, kv.Value, cached);
 
                 }).ToArray();
 
-                int loadedFiles = loadCache.Where(loadCache => loadCache.Item3 != null)
+            //Only include files that exist and were loaded
+            int loadedFiles = loadCache.Where(static loadCache => loadCache.Item3 != null)
                     .Count();
 
-                string[] notFoundFiles = loadCache.Where(loadCache => loadCache.Item3 == null)
-                    .Select(l => Path.GetFileName(l.Item2))
+            string[] notFoundFiles = loadCache.Where(static loadCache => loadCache.Item3 == null)
+                    .Select(static l => Path.GetFileName(l.Item2))
                     .ToArray();
 
-                if(notFoundFiles.Length > 0)
-                {
-                    logger.Warn("Failed to load error files {files} for host {hosts}", notFoundFiles, GetHostnames());
-                }
-
-                //init frozen dictionary from valid cached files
-                return loadCache.Where(kv => kv.Item3 != null)
-                    .ToDictionary(kv => kv.Item1, kv => kv.Item3!)
-                    .ToFrozenDictionary();
+            if (notFoundFiles.Length > 0)
+            {
+                logger.Warn("Failed to load error files {files} for host {hosts}", notFoundFiles, GetHostnames());
             }
 
-            return new Dictionary<HttpStatusCode, FileCache>().ToFrozenDictionary();
+            //init frozen dictionary from valid cached files
+            return loadCache.Where(kv => kv.Item3 != null)
+                .ToDictionary(kv => kv.Item1, kv => kv.Item3!)
+                .ToFrozenDictionary();
         }
 
-        private FrozenSet<IPAddress> GetDownStreamServers()
+        private static FrozenSet<IPAddress> GetDownStreamServers(VirtualHostServerConfig conf)
         {
             //Find downstream servers
             HashSet<IPAddress>? downstreamServers = null;
 
             //See if element is set
-            if (_rootConfig.TryGetValue(DOWNSTREAM_TRUSTED_SERVERS_PROP, out JsonElement downstreamEl))
+            if (conf.DownstreamServers is not null)
             {
                 //hash addresses, make is distinct
-                downstreamServers = downstreamEl.EnumerateArray()
-                    .Select(static addr => IPAddress.Parse(addr.GetString()!))
+                downstreamServers = conf.DownstreamServers
+                    .Where(static addr => !string.IsNullOrWhiteSpace(addr))
+                    .Select(static addr => IPAddress.Parse(addr))
                     .Distinct()
                     .ToHashSet();
             }
@@ -226,28 +183,30 @@ namespace VNLib.WebServer
             return (downstreamServers ?? []).ToFrozenSet();
         }
 
-        private FrozenSet<IPAddress>? GetWhitelist()
+        private static FrozenSet<IPAddress>? GetWhitelist(VirtualHostServerConfig conf)
         {
-            //See if whitelist is defined, if so, get a distinct list of arrays
-            return _rootConfig.TryGetValue(SERVER_WHITELIST_PROP_NAME, out JsonElement wlEl)
-                ? wlEl.EnumerateArray()
-                    .Select(static addr => IPAddress.Parse(addr.GetString()!))
+            if(conf.Whitelist is null)
+            {
+                return null;
+            }
+
+            //See if whitelist is defined, if so, get a distinct list of addresses
+            return conf.Whitelist.Where(static addr => !string.IsNullOrWhiteSpace(addr))
+                    .Select(static addr => IPAddress.Parse(addr))
                     .Distinct()
                     .ToHashSet()
-                    .ToFrozenSet()
-                : null;
+                    .ToFrozenSet();
         }
 
-        private FrozenSet<string> GetExlcudedExtensions()
+        private static FrozenSet<string> GetExlcudedExtensions(VirtualHostServerConfig conf)
         {
-            //Get exlucded/denied extensions from config
-            if (_rootConfig.TryGetValue(SERVER_DENY_EXTENSIONS_PROP_NAME, out JsonElement denyEl))
+            //Get exlucded/denied extensions from config, ignore null strings
+            if (conf.DenyExtensions is not null)
             {
-                //get blocked extensions for the root
-                return denyEl.EnumerateArray().Select(static el => el.GetString())
+                return conf.DenyExtensions.Where(static s => !string.IsNullOrWhiteSpace(s))
                         .Distinct()
                         .ToHashSet()
-                        .ToFrozenSet()!;
+                        .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
             }
             else
             {
@@ -255,48 +214,53 @@ namespace VNLib.WebServer
             }
         }
 
-        private IReadOnlyCollection<string> GetDefaultFiles()
+        private static IReadOnlyCollection<string> GetDefaultFiles(VirtualHostServerConfig conf)
         {
+            if(conf.DefaultFiles is null)
+            {
+                return Array.Empty<string>();
+            }
+
             //Get blocked extensions for the root
-            return _rootConfig.TryGetValue(SERVER_DEFAULT_FILE_PROP_NAME, out JsonElement defFileEl)
-                    ? defFileEl.EnumerateArray()
-                        .Where(static s => s.GetString() != null)
-                        .Select(static s => s.GetString()!)
+            return conf.DefaultFiles
+                        .Where(static s => !string.IsNullOrWhiteSpace(s))
                         .Distinct()
-                        .ToList()
-                    : Array.Empty<string>();
+                        .ToList();
         }
 
-        private KeyValuePair<string, string>[] GetConfigHeaders()
+        private static KeyValuePair<string, string>[] GetConfigHeaders(VirtualHostServerConfig conf)
         {
-            //get the headers array property
-            if (!_rootConfig.TryGetValue(SERVER_HEADERS_PROP_NAME, out JsonElement headerEl))
+            if (conf.Headers is null)
             {
                 return [];
             }
 
             //Enumerate kv headers
-            return headerEl.EnumerateObject()
+            return conf.Headers
+                    //Ignore empty keys or values                        
+                    .Where(static p => !string.IsNullOrWhiteSpace(p.Key) && string.IsNullOrWhiteSpace(p.Value))
                     //Exclude special headers
-                    .Where(static p => !SpecialHeaders.SpecialHeader.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
-                    .Select(static p => new KeyValuePair<string, string>(p.Name!, p.Value.GetString()!))
+                    .Where(static p => !SpecialHeaders.SpecialHeader.Contains(p.Key, StringComparer.OrdinalIgnoreCase))
+                    .Select(static p => new KeyValuePair<string, string>(p.Key!, p.Value))
                     .ToArray();
         }
 
-        private FrozenDictionary<string, string> GetSpecialHeaders()
+        private static FrozenDictionary<string, string> GetSpecialHeaders(VirtualHostServerConfig conf)
         {
             //get the headers array property
-            if (!_rootConfig.TryGetValue(SERVER_HEADERS_PROP_NAME, out JsonElement headerEl))
+            if (conf.Headers is null)
             {
                 return new Dictionary<string, string>().ToFrozenDictionary();
             }
 
             //Enumerate kv header
-            return headerEl.EnumerateObject()
+            return conf.Headers
+                    //Ignore empty keys or values
+                    .Where(static p => !string.IsNullOrWhiteSpace(p.Key) && !string.IsNullOrWhiteSpace(p.Value))
                     //Only include special headers
-                    .Where(static p => SpecialHeaders.SpecialHeader.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+                    .Where(static p => SpecialHeaders.SpecialHeader.Contains(p.Key, StringComparer.OrdinalIgnoreCase))
                     //Create the special dictionary
-                    .ToDictionary(static k => k.Name, static k => k.Value.GetString()!, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(static k => k.Key, static k => k.Value, StringComparer.OrdinalIgnoreCase)
                     .ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
         }
 

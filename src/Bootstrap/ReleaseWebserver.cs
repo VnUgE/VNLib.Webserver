@@ -156,21 +156,23 @@ namespace VNLib.WebServer.Bootstrap
 
             try
             {
-                HttpGlobalConfig? gConf = rootEl.GetProperty(HTTP_CONF_PROP_NAME).DeserializeElement<HttpGlobalConfig>();
+                HttpGlobalConfig? gConf = rootEl.GetProperty("http").DeserializeElement<HttpGlobalConfig>();
                 Validate.EnsureNotNull(gConf, "Missing required HTTP configuration variables");
 
                 gConf.ValidateConfig();
 
-                IHttpCompressorManager? compressorManager = HttpCompressor.LoadOrDefaultCompressor(procArgs, config, logger.AppLog);
+                //Attempt to load the compressor manager, if null, compression is disabled
+                IHttpCompressorManager? compressorManager = HttpCompressor.LoadOrDefaultCompressor(procArgs, gConf.Compression, config, logger.AppLog);
 
-                HttpConfig conf = new(logger.SysLog, PoolManager.GetHttpPool(procArgs.ZeroAllocations), Encoding.ASCII)
+                IHttpMemoryPool memPool = PoolManager.GetHttpPool(procArgs.ZeroAllocations);
+
+                HttpConfig conf = new(logger.SysLog, memPool, Encoding.ASCII)
                 {
-                    //Init compressor
                     ActiveConnectionRecvTimeout     = gConf.RecvTimeoutMs,
                     CompressorManager               = compressorManager,
                     ConnectionKeepAlive             = TimeSpan.FromMilliseconds(gConf.KeepAliveMs),
-                    CompressionLimit                = gConf.CompressionLimit,                    
-                    CompressionMinimum              = gConf.CompressionMinimum,
+                    CompressionLimit                = gConf.Compression.CompressionMax,                    
+                    CompressionMinimum              = gConf.Compression.CompressionMin,
                     DebugPerformanceCounters        = procArgs.HasArgument("--http-counters"),
                     DefaultHttpVersion              = HttpHelpers.ParseHttpVersion(gConf.DefaultHttpVersion),
                     MaxFormDataUploadSize           = gConf.MultipartMaxSize,
@@ -231,18 +233,19 @@ namespace VNLib.WebServer.Bootstrap
                 //execution timeout
                 TimeSpan execTimeout = rootEl.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds);
 
-                //Enumerate all virtual host configurations
-                foreach (JsonElement vhElement in rootEl.GetProperty(HOSTS_CONFIG_PROP_NAME).EnumerateArray())
+                if(!rootEl.TryGetProperty("virtual_hosts", out _))
                 {
-                    //See if connection tracing is enabled for this host
-                    bool traceCons = vhElement.TryGetProperty(SERVER_TRACE_PROP_NAME, out JsonElement traceEl) && traceEl.GetBoolean();
-                    bool forcePortCheck = vhElement.TryGetProperty("force_port_check", out JsonElement forcePortEl) && forcePortEl.GetBoolean();
+                    log.Warn("No virtual hosts array was defined. Continuing without hosts");
+                    return;
+                }
 
-                    CorsSecurityConfig cors = GetCorsConfig(vhElement);
-                    BenchmarkConfig benchCfg = BenchmarkConfig(vhElement);
+                int index = 0;
 
+                //Enumerate all virtual host configurations
+                foreach (JsonElement vhElement in rootEl.GetProperty("virtual_hosts").EnumerateArray())
+                {
                     //Inint config builder
-                    IVirtualHostConfigBuilder builder = new JsonWebConfigBuilder(vhElement, execTimeout, log);
+                    JsonWebConfigBuilder builder = new (index, vhElement, execTimeout, log);
 
                     //Load the base configuration and hostname list
                     VirtualHostConfig conf = builder.GetBaseConfig();
@@ -252,14 +255,14 @@ namespace VNLib.WebServer.Bootstrap
                     conf.EventHooks = new VirtualHostHooks(conf);
 
                     //Init middleware stack
-                    conf.CustomMiddleware.Add(new MainServerMiddlware(log, conf, forcePortCheck));
+                    conf.CustomMiddleware.Add(new MainServerMiddlware(log, conf, builder.VhConfig.ForcePortCheck));
 
                     /*
                      * In benchmark mode, skip other middleware that might slow connections down
                      */
-                    if (benchCfg.Enabled)
+                    if (builder.VhConfig.Benchmark?.Enabled == true)
                     {
-                        conf.CustomMiddleware.Add(new BenchmarkMiddleware(benchCfg));
+                        conf.CustomMiddleware.Add(new BenchmarkMiddleware(builder.VhConfig.Benchmark));
                     }
                     else
                     {
@@ -269,9 +272,9 @@ namespace VNLib.WebServer.Bootstrap
                          * 
                          * Only add the middleware if the confg has a value for the allow cors property
                          */
-                        if (cors.Enabled)
+                        if (builder.VhConfig.Cors?.Enabled == true)
                         {
-                            conf.CustomMiddleware.Add(new CORSMiddleware(log, cors));
+                            conf.CustomMiddleware.Add(new CORSMiddleware(log, builder.VhConfig.Cors));
                         }
 
                         //Add whitelist middleware if the configuration has a whitelist
@@ -281,7 +284,7 @@ namespace VNLib.WebServer.Bootstrap
                         }
 
                         //Add tracing middleware if enabled
-                        if (traceCons)
+                        if (builder.VhConfig.RequestTrace)
                         {
                             conf.CustomMiddleware.Add(new ConnectionLogMiddleware(log));
                         }
@@ -309,16 +312,18 @@ namespace VNLib.WebServer.Bootstrap
                             hostnames,
                             conf.RootDir.FullName,
                             conf.TransportEndpoint,
-                            traceCons,
+                            builder.VhConfig.RequestTrace,
                             conf.Certificate != null,
                             conf.Certificate.IsClientCertRequired(),
                             conf.WhiteList?.ToArray(),
                             conf.DownStreamServers?.ToArray(),
-                            cors.Enabled,
-                            cors.AllowedCorsAuthority,
+                            builder.VhConfig.Cors?.Enabled == true,
+                            builder.VhConfig.Cors?.AllowedCorsAuthority,
                             conf.FailureFiles.Select(p => (int)p.Key).ToArray()
                         );
                     }
+
+                    index++;
                 }
             }
             catch (KeyNotFoundException kne)
@@ -329,26 +334,6 @@ namespace VNLib.WebServer.Bootstrap
             {
                 throw new ServerConfigurationException("Failed to parse IP address", fe);
             }
-        }
-
-        private static CorsSecurityConfig GetCorsConfig(JsonElement vhElement)
-        {
-            if(!vhElement.TryGetProperty("cors", out JsonElement val))
-            {
-                return new();
-            }
-
-            return val.DeserializeElement<CorsSecurityConfig>() ?? new(); 
-        }
-
-        private static BenchmarkConfig BenchmarkConfig(JsonElement vhElement)
-        {
-            if (!vhElement.TryGetProperty("benchmark", out JsonElement val))
-            {
-                return new();
-            }
-
-            return val.DeserializeElement<BenchmarkConfig>() ?? new();
         }
     }
 }

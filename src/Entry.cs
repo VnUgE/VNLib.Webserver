@@ -57,34 +57,9 @@ Starting...
         private static readonly DirectoryInfo EXE_DIR = new(Environment.CurrentDirectory);
 
         private const string DEFAULT_CONFIG_PATH = "config.json";
-
-        internal const string HOSTS_CONFIG_PROP_NAME = "virtual_hosts";
-        internal const string SERVER_ERROR_FILE_PROP_NAME = "error_files";
-
-        internal const string SERVER_ENDPOINT_PROP_NAME = "interface";
-        internal const string SERVER_ENDPOINT_PORT_PROP_NAME = "port";
-        internal const string SERVER_ENDPOINT_IP_PROP_NAME = "address";
-        internal const string SERVER_HOSTNAME_PROP_NAME = "hostname";
-        internal const string SERVER_HOSTNAME_ARRAY_PROP_NAME = "hostnames";
-        internal const string SERVER_ROOT_PATH_PROP_NAME = "path";
         internal const string SESSION_TIMEOUT_PROP_NAME = "max_execution_time_ms";
-        internal const string SERVER_DEFAULT_FILE_PROP_NAME = "default_files";
-        internal const string SERVER_DENY_EXTENSIONS_PROP_NAME = "deny_extensions";
-        internal const string SERVER_PATH_FILTER_PROP_NAME = "path_filter";
-        internal const string SERVER_CACHE_DEFAULT_PROP_NAME = "cache_default_sec";
-        internal const string DOWNSTREAM_TRUSTED_SERVERS_PROP = "downstream_servers";
-        internal const string SERVER_HEADERS_PROP_NAME = "headers";
-        internal const string SERVER_WHITELIST_PROP_NAME = "whitelist";
-        internal const string SERVER_TRACE_PROP_NAME = "trace";
-
-        internal const string HTTP_CONF_PROP_NAME = "http";
-
         internal const string TCP_CONF_PROP_NAME = "tcp";
-
-        internal const string HTTP_COMPRESSION_PROP_NAME = "compression_lib";
-
         internal const string LOAD_DEFAULT_HOSTNAME_VALUE = "[system]";
-
         internal const string PLUGINS_CONFIG_PROP_NAME = "plugins";
 
 
@@ -148,7 +123,12 @@ Starting...
 
                 server.Configure();
             }
-            catch(ServerConfigurationException sce)
+            catch(ServerConfigurationException sce) when (sce.InnerException is not null)
+            {
+                logger.AppLog.Error("Failed to configure server. Reason: {sce}", sce.InnerException.Message);
+                return -1;
+            }
+            catch (ServerConfigurationException sce)
             {
                 logger.AppLog.Error("Failed to configure server. Reason: {sce}", sce.Message);
                 return -1;
@@ -340,6 +320,7 @@ Starting...
 
         private static WebserverBase GetWebserver(ServerLogger logger, IServerConfig config, ProcessArguments procArgs)
         {
+            logger.AppLog.Information("Configuring production webserver");
             return new ReleaseWebserver(logger, config, procArgs);
         }
 

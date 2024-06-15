@@ -26,7 +26,8 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-//using YamlDotNet.Serialization;
+using YamlDotNet.Core.Events;
+using YamlDotNet.Serialization;
 
 using VNLib.Utils.IO;
 
@@ -84,19 +85,17 @@ namespace VNLib.WebServer.Config
                 return null;
             }
 
-            throw new NotSupportedException("Yaml is not yet supported");
-
             /*
              * The following code reads the configuration as a yaml
              * object and then serializes it over to json. 
              */
 
-            /*
-
             using StreamReader reader = OpenFileRead(fileName);
 
-            IDeserializer deserializer = new DeserializerBuilder().Build();
-            object? yamlObject = deserializer.Deserialize(reader);
+            object? yamlObject = new DeserializerBuilder()
+                .WithNodeTypeResolver(new NumberTypeResolver())
+                .Build()
+                .Deserialize(reader);
 
             ISerializer serializer = new SerializerBuilder()
                 .JsonCompatible()
@@ -110,15 +109,7 @@ namespace VNLib.WebServer.Config
 
             ms.Seek(0, SeekOrigin.Begin);
 
-            JsonDocumentOptions jdo = new()
-            {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            };
-
-            return new JsonServerConfig(JsonDocument.Parse(ms, jdo));
-
-            */
+            return new JsonServerConfig(JsonDocument.Parse(ms));
         }
 
         private static StreamReader OpenFileRead(string fileName)
@@ -129,6 +120,34 @@ namespace VNLib.WebServer.Config
                 detectEncodingFromByteOrderMarks: false,
                 leaveOpen: false
             );
+        }
+
+        public class NumberTypeResolver : INodeTypeResolver
+        {
+            public bool Resolve(NodeEvent? nodeEvent, ref Type currentType)
+            {
+                if (nodeEvent is Scalar scalar)
+                {
+                    if(long.TryParse(scalar.Value, out _))
+                    {
+                        currentType = typeof(int);
+                        return true;
+                    }
+
+                    if (double.TryParse(scalar.Value, out _))
+                    {
+                        currentType = typeof(double);
+                        return true;
+                    }
+
+                    if (bool.TryParse(scalar.Value, out _))
+                    {
+                        currentType = typeof(bool);
+                        return true;
+                    }
+                }
+                return false;
+            }
         }
     }
 }

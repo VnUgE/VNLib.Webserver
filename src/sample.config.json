@@ -17,10 +17,6 @@
   "http": {
     //The defaut HTTP version to being requests with (does not support http/2 yet)
     "default_version": "HTTP/1.1",
-    //The maxium size (in bytes) of response messges that will be compressed
-    "compression_limit": 512000,
-    //Minium response size (in bytes) to compress
-    "compression_minimum": 2048,
     //The size of the buffer to use when parsing multipart/form data uploads
     "multipart_max_buf_size": 20480,
     //The maxium ammount of data (in bytes) allows for mulitpart/form data file uploads
@@ -42,11 +38,15 @@
     //The size (in bytes) of the buffer used to store all response header data
     "response_header_buf_size": 16384,
     //Max number of multi-part file uploads allowed per request
-    "max_uploads_per_request": 10
-  },
+    "max_uploads_per_request": 10,
 
-  //Path to managed compressor library
-  "compression_lib": null,
+    "compression": {
+      "enabled": true,        //controls compression globally
+      "assembly": "",         //A custom assembly path (ex: 'VNLib.Net.Compression.dll')
+      "max_size": 512000,     //Maxium size of a response to compress before it's bypassed
+      "min_size": 2048        //Minium size of a response to compress, if smaller compression is bypassed
+    }
+  },
 
   //Maxium ammount of time a request is allowed to be processed (includes loading or waiting for sessions) before operations will be cancelled and a 503 returned
   "max_execution_time_ms": 20000,

@@ -86,10 +86,10 @@ namespace VNLib.WebServer.Middlewares
             }
 
             //Add response headers from vh config
-            for (int i = 0; i < VirtualHostOptions.AdditionalHeaders.Count; i++)
+            for (int i = 0; i < VirtualHostOptions.AdditionalHeaders.Length; i++)
             {
                 //Get and append the client header value
-                KeyValuePair<string, string> header = VirtualHostOptions.AdditionalHeaders[i];
+                ref KeyValuePair<string, string> header = ref VirtualHostOptions.AdditionalHeaders[i];
 
                 entity.Server.Headers.Append(header.Key, header.Value);
             }

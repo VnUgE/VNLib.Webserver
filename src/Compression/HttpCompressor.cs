@@ -23,6 +23,7 @@
 */
 
 using System;
+using System.IO;
 using System.Text.Json;
 using System.Reflection;
 using System.Runtime.Loader;
@@ -34,10 +35,11 @@ using VNLib.Net.Http;
 
 using VNLib.WebServer.Config;
 using VNLib.WebServer.RuntimeLoading;
-using static VNLib.WebServer.Entry;
+using VNLib.WebServer.Config.Model;
 
 namespace VNLib.WebServer.Compression
 {
+
     internal static class HttpCompressor
     {
         /*
@@ -54,45 +56,39 @@ namespace VNLib.WebServer.Compression
         /// <param name="config">The top-level config element</param>
         /// <param name="logger">The application logger to write logging events to</param>
         /// <returns>The <see cref="IHttpCompressorManager"/> that the user configured, or null if disabled</returns>
-        public static IHttpCompressorManager? LoadOrDefaultCompressor(ProcessArguments args, IServerConfig config, ILogProvider logger)
+        public static IHttpCompressorManager? LoadOrDefaultCompressor(ProcessArguments args, HttpCompressorConfig compConfig, IServerConfig config, ILogProvider logger)
         {
             const string EXTERN_LIB_LOAD_METHOD_NAME = "OnLoad";
 
-            JsonElement configEl = config.GetDocumentRoot();
-
             if (args.HasArgument("--compression-off"))
             {
-                logger.Debug("Compression disabled by cli args");
+                logger.Information("Http compression disabled by cli args");
                 return null;
             }
 
-            //Try to get the compressor assembly file from config
-            if (!configEl.TryGetProperty(HTTP_COMPRESSION_PROP_NAME, out JsonElement compAsmEl))
+            if(!compConfig.Enabled)
             {
-                logger.Debug("Falling back to default http compressor");
-                return new FallbackCompressionManager();
+                logger.Information("Http compression disabled by config");
+                return null;
             }
 
-            //Try to get the compressor assembly file from config
-            string? compAsmPath = compAsmEl.GetString();
-
-            if (string.IsNullOrWhiteSpace(compAsmPath))
+            if (string.IsNullOrWhiteSpace(compConfig.AssemblyPath))
             {
-                logger.Debug("Falling back to default http compressor");
+                logger.Information("Falling back to default http compressor");
                 return new FallbackCompressionManager();
             }
 
             //Make sure the file exists
-            if (!FileOperations.FileExists(compAsmPath))
+            if (!FileOperations.FileExists(compConfig.AssemblyPath))
             {
                 logger.Warn("The specified http compressor assembly file does not exist, falling back to default http compressor");
                 return new FallbackCompressionManager();
             }
 
             //Try to load the assembly into our process alc, we dont need to worry about unloading
-            ManagedLibrary lib = ManagedLibrary.LoadManagedAssembly(compAsmPath, AssemblyLoadContext.Default);
+            ManagedLibrary lib = ManagedLibrary.LoadManagedAssembly(compConfig.AssemblyPath, AssemblyLoadContext.Default);
 
-            logger.Debug("Loading user defined compressor assembly\n{asm}", lib.AssemblyPath);
+            logger.Debug("Loading user defined compressor assembly: {asm}", Path.GetFileName(lib.AssemblyPath));
 
             try
             {
@@ -107,13 +103,13 @@ namespace VNLib.WebServer.Compression
 
                 //Invoke the on load method with the logger and config data
                 OnHttpLibLoad? onlibLoadConfig = ManagedLibrary.TryGetMethod<OnHttpLibLoad>(instance, EXTERN_LIB_LOAD_METHOD_NAME);
-                onlibLoadConfig?.Invoke(logger, configEl);
+                onlibLoadConfig?.Invoke(logger, config.GetDocumentRoot());
 
                 //Invoke parameterless on load method
                 Action? onLibLoad = ManagedLibrary.TryGetMethod<Action>(instance, EXTERN_LIB_LOAD_METHOD_NAME);
                 onLibLoad?.Invoke();
 
-                logger.Information("Custom compressor library loaded successfully");
+                logger.Information("Custom compressor library loaded");
 
                 return instance;
             }

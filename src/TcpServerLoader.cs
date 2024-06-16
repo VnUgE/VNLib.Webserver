@@ -135,7 +135,7 @@ namespace VNLib.WebServer
                 OnSocketCreated = OnSocketConfiguring,
 
                 //Init buffer pool
-                BufferPool = PoolManager.GetPool(args.ZeroAllocations)
+                BufferPool = PoolManager.GetTcpPool(args.ZeroAllocations)
             };
 
             //Print warning message, since inline scheduler is an avanced feature

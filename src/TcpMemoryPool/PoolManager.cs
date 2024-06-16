@@ -28,9 +28,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 using VNLib.Utils.Memory;
-using VNLib.Utils.Extensions;
 using VNLib.Net.Http;
-
 
 namespace VNLib.WebServer.TcpMemoryPool
 {
@@ -43,11 +41,7 @@ namespace VNLib.WebServer.TcpMemoryPool
         /// Gets an unmanaged memory pool provider for the TCP server to alloc buffers from
         /// </summary>
         /// <returns>The memory pool</returns>
-        public static MemoryPool<byte> GetPool(bool zeroOnAlloc)
-        {
-            //Use the shared heap impl. which also allows diagnostics, and is tuned
-            return new HttpMemoryPool(zeroOnAlloc);
-        }
+        public static MemoryPool<byte> GetTcpPool(bool zeroOnAlloc) => new HttpMemoryPool(zeroOnAlloc);
 
         /// <summary>
         /// Gets a memory pool provider for the HTTP server to alloc buffers from
@@ -55,8 +49,18 @@ namespace VNLib.WebServer.TcpMemoryPool
         /// <returns>The http server memory pool</returns>
         public static IHttpMemoryPool GetHttpPool(bool zeroOnAlloc) => new HttpMemoryPool(zeroOnAlloc);
 
+        /*
+         * Fun little umnanaged memory pool that allows for allocating blocks
+         * with fast pointer access and zero cost pinning
+         * 
+         * All blocks are allocated to the nearest page size
+         */
+
         internal sealed class HttpMemoryPool(bool zeroOnAlloc) : MemoryPool<byte>, IHttpMemoryPool
         {
+            //Avoid the shared getter on every alloc call
+            private readonly IUnmangedHeap _heap = MemoryUtil.Shared;
+
             ///<inheritdoc/>
             public override int MaxBufferSize { get; } = int.MaxValue;
 
@@ -67,16 +71,14 @@ namespace VNLib.WebServer.TcpMemoryPool
             ///<inheritdoc/>
             public IResizeableMemoryHandle<T> AllocFormDataBuffer<T>(int initialSize) where T : unmanaged
             {
-                //round to nearest page
-                nint initSize = MemoryUtil.NearestPage(initialSize);
-                return MemoryUtil.Shared.Alloc<T>(initSize, zeroOnAlloc);
+                return MemoryUtil.SafeAllocNearestPage<T>(_heap, initialSize, zeroOnAlloc);
             }
 
             ///<inheritdoc/>
             public override IMemoryOwner<byte> Rent(int minBufferSize = -1)
             {
                 nint initSize = MemoryUtil.NearestPage(minBufferSize);
-                return new UnsafeMemoryManager(MemoryUtil.Shared, (nuint)initSize, zeroOnAlloc);
+                return new UnsafeMemoryManager(_heap, (nuint)initSize, zeroOnAlloc);
             }
 
             ///<inheritdoc/>
@@ -132,6 +134,4 @@ namespace VNLib.WebServer.TcpMemoryPool
             }
         }
     }
-
-    
 }

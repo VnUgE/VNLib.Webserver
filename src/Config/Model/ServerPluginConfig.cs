@@ -22,6 +22,8 @@
 * along with VNLib.WebServer. If not, see http://www.gnu.org/licenses/.
 */
 
+using System;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace VNLib.WebServer.Config.Model
@@ -31,8 +33,16 @@ namespace VNLib.WebServer.Config.Model
         [JsonPropertyName("enabled")]
         public bool Enabled { get; set; }
 
+        [Obsolete]
         [JsonPropertyName("path")]
-        public string? Path { get; set; } = "plugins";
+        public string? Path
+        {
+            get => Paths?.FirstOrDefault();
+            set => Paths = value != null ? [value] : [];
+        }
+
+        [JsonPropertyName("paths")]
+        public string[]? Paths { get; set; } = [ "plugins" ];
 
         [JsonPropertyName("config_dir")]
         public string? ConfigDir { get; set; }

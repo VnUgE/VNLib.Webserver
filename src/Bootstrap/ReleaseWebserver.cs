@@ -78,7 +78,7 @@ namespace VNLib.WebServer.Bootstrap
 ----------------------------------
  |      Plugin configuration:
  | Enabled: {enabled}
- | Directory: {dir}
+ | Directories: {dir}
  | Hot Reload: {hr}
  | Reload Delay: {delay}s
 ----------------------------------";
@@ -112,12 +112,14 @@ namespace VNLib.WebServer.Bootstrap
                 return null;
             }
 
-            Validate.EnsureNotNull(conf.Path, "If plugins are enabled, you must specify a directory to load them from");
+            Validate.EnsureNotNull(conf.Paths, "If plugins are enabled, you must specify a directory to load them from");
+
+            conf.Paths = conf.Paths.Where(static p => !string.IsNullOrWhiteSpace(p)).ToArray();
 
             //Init new plugin stack builder
             PluginStackBuilder pluginBuilder = PluginStackBuilder.Create()
                                     .WithDebugLog(logger.AppLog)
-                                    .WithSearchDirectory(conf.Path)
+                                    .WithSearchDirectories(conf.Paths)
                                     .WithLoaderFactory(PluginAsemblyLoading.Create);
 
             //Setup plugin config data
@@ -140,7 +142,7 @@ namespace VNLib.WebServer.Bootstrap
             logger.AppLog.Information(
                 PLUGIN_DATA_TEMPLATE,
                 true,
-                conf.Path,
+                conf.Paths,
                 conf.HotReload,
                 conf.ReloadDelaySec
             );
@@ -263,6 +265,7 @@ namespace VNLib.WebServer.Bootstrap
                     if (builder.VhConfig.Benchmark?.Enabled == true)
                     {
                         conf.CustomMiddleware.Add(new BenchmarkMiddleware(builder.VhConfig.Benchmark));
+                        log.Information("BENCHMARK: Enabled for virtual host {vh}", conf.Hostname);
                     }
                     else
                     {

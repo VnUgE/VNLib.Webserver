@@ -30,6 +30,7 @@ using System.Collections.Frozen;
 using VNLib.Net.Http;
 using VNLib.Utils.Logging;
 using VNLib.Plugins.Essentials;
+using VNLib.Plugins.Essentials.Sessions;
 using VNLib.Plugins.Essentials.Extensions;
 using VNLib.Plugins.Essentials.Middleware;
 
@@ -46,7 +47,7 @@ namespace VNLib.WebServer.Middlewares
     [MiddlewareImpl(MiddlewareImplOptions.SecurityCritical)]
     internal sealed class CORSMiddleware(ILogProvider Log, CorsSecurityConfig secConfig) : IHttpMiddleware
     {
-        private readonly FrozenSet<string> _corsAuthority = secConfig.AllowedCorsAuthority.ToFrozenSet();
+        private readonly FrozenSet<string> _corsAuthority = secConfig.AllowedCorsAuthority.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {
@@ -105,14 +106,10 @@ namespace VNLib.WebServer.Middlewares
             }
 
             //If the connection is a cross-site, then an origin header must be supplied
-            if (isCrossSite)
+            if (isCrossSite && entity.Server.Origin is null)
             {
-                //Enforce origin header
-                if (entity.Server.Origin == null)
-                {
-                    Log.Debug("Denied cross-site request because origin header was not supplied");
-                    return ValueTask.FromResult(FileProcessArgs.Deny);
-                }
+                Log.Debug("Denied cross-site request because origin header was not supplied");
+                return ValueTask.FromResult(FileProcessArgs.Deny);
             }
 
             //If same origin is supplied, enforce origin header on post/options/put/patch
@@ -126,7 +123,50 @@ namespace VNLib.WebServer.Middlewares
                 }
             }
 
+            if(!IsSessionSecured(entity))
+            {
+                return ValueTask.FromResult(FileProcessArgs.Deny);
+            }
+
             return ValueTask.FromResult(FileProcessArgs.Continue);
+        }
+
+        private bool IsSessionSecured(HttpEntity entity)
+        {
+            ref readonly SessionInfo session = ref entity.Session;
+
+            /*
+             * When sessions are created for connections that come from a different 
+             * origin, their origin is stored for later. 
+             * 
+             * If the session was created from a different origin or the current connection
+             * is cross origin, then the origin must be allowed by the configuration
+             */
+
+            if (entity.Server.Origin == null)
+            {
+                return true;
+            }
+
+            if (session.IsSet || session.IsNew || session.SessionType != SessionType.Web)
+            {
+                return true;
+            }
+
+            bool sameOrigin = string.Equals(
+                entity.Server.Origin.Authority,
+                entity.Session.SpecifiedOrigin?.Authority,
+                StringComparison.OrdinalIgnoreCase
+            );
+
+            if (sameOrigin || _corsAuthority.Contains(entity.Server.Origin.Authority))
+            {
+                return true;
+            }
+
+            Log.Debug("Denied connection from {0} because the user's origin changed and is not whitelisted.", entity.TrustedRemoteIp);
+
+            return false;
         }
     }
 }

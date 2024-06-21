@@ -30,7 +30,7 @@ namespace VNLib.WebServer.Config.Model
     internal class CorsSecurityConfig
     {
         [JsonPropertyName("enabled")]
-        public bool Enabled { get; set; } = true;
+        public bool Enabled { get; set; } = false;
 
         [JsonPropertyName("deny_cors_connections")]
         public bool DenyCorsCons { get; set; } = false;

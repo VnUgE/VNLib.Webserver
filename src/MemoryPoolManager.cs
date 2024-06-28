@@ -3,9 +3,9 @@
 * 
 * Library: VNLib
 * Package: VNLib.WebServer
-* File: PoolManager.cs 
+* File: MemoryPoolManager.cs 
 *
-* MemoryPool.cs is part of VNLib.WebServer which is part of the larger 
+* MemoryPoolManager.cs is part of VNLib.WebServer which is part of the larger 
 * VNLib collection of libraries and utilities.
 *
 * VNLib.WebServer is free software: you can redistribute it and/or modify 
@@ -30,12 +30,12 @@ using System.Runtime.CompilerServices;
 using VNLib.Utils.Memory;
 using VNLib.Net.Http;
 
-namespace VNLib.WebServer.TcpMemoryPool
+namespace VNLib.WebServer
 {
     /// <summary>
     /// recovers a memory pool for the TCP server to alloc buffers from
     /// </summary>
-    internal static class PoolManager
+    internal static class MemoryPoolManager
     {
         /// <summary>
         /// Gets an unmanaged memory pool provider for the TCP server to alloc buffers from
@@ -88,13 +88,13 @@ namespace VNLib.WebServer.TcpMemoryPool
             sealed class UnsafeMemoryManager(IUnmangedHeap heap, nuint bufferSize, bool zero) : MemoryManager<byte>
             {
 
-                private IntPtr _pointer = heap.Alloc(bufferSize, sizeof(byte), zero);
+                private nint _pointer = heap.Alloc(bufferSize, sizeof(byte), zero);
                 private int _size = (int)bufferSize;
 
                 ///<inheritdoc/>
                 public override Span<byte> GetSpan()
                 {
-                    Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly or was released");
+                    Debug.Assert(_pointer != nint.Zero, "Pointer to memory block is null, was not allocated properly or was released");
 
                     return MemoryUtil.GetSpan<byte>(_pointer, _size);
                 }
@@ -106,13 +106,13 @@ namespace VNLib.WebServer.TcpMemoryPool
                     ArgumentOutOfRangeException.ThrowIfNegative(elementIndex);
                     ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(elementIndex, _size);
 
-                    Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly or was released");
+                    Debug.Assert(_pointer != nint.Zero, "Pointer to memory block is null, was not allocated properly or was released");
 
                     //Get pointer offset from index
-                    IntPtr offset = IntPtr.Add(_pointer, elementIndex);
+                    nint offset = nint.Add(_pointer, elementIndex);
 
                     //Return handle at offser
-                    return MemoryUtil.GetMemoryHandleFromPointer(offset, pinnable:this);
+                    return MemoryUtil.GetMemoryHandleFromPointer(offset, pinnable: this);
                 }
 
                 //No-op
@@ -121,13 +121,13 @@ namespace VNLib.WebServer.TcpMemoryPool
 
                 protected override void Dispose(bool disposing)
                 {
-                    Debug.Assert(_pointer != IntPtr.Zero, "Pointer to memory block is null, was not allocated properly");
+                    Debug.Assert(_pointer != nint.Zero, "Pointer to memory block is null, was not allocated properly");
 
                     bool freed = heap.Free(ref _pointer);
 
                     //Free the memory, should also zero the pointer
                     Debug.Assert(freed, "Failed to free an allocated block");
-                    
+
                     //Set size to 0
                     _size = 0;
                 }

@@ -108,7 +108,7 @@ Starting...
             {
                 logger.AppLog.Warn("HTTP Logging is only enabled in builds compiled with DEBUG symbols");
             }
-#endif           
+#endif
 
             if (procArgs.ZeroAllocations && !MemoryUtil.Shared.CreationFlags.HasFlag(HeapCreation.GlobalZero))
             {
@@ -125,12 +125,17 @@ Starting...
             }
             catch(ServerConfigurationException sce) when (sce.InnerException is not null)
             {
-                logger.AppLog.Error("Failed to configure server. Reason: {sce}", sce.InnerException.Message);
+                logger.AppLog.Fatal("Failed to configure server. Reason: {sce}", sce.InnerException.Message);
                 return -1;
             }
             catch (ServerConfigurationException sce)
             {
-                logger.AppLog.Error("Failed to configure server. Reason: {sce}", sce.Message);
+                logger.AppLog.Fatal("Failed to configure server. Reason: {sce}", sce.Message);
+                return -1;
+            }
+            catch(Exception ex) when (ex.InnerException is ServerConfigurationException sce)
+            {
+                logger.AppLog.Fatal("Failed to configure server. Reason: {sce}", sce.Message);
                 return -1;
             }
             catch (Exception ex)
@@ -222,7 +227,6 @@ Starting...
         --config         <path>     - Specifies the path to the configuration file (relative or absolute)
         --input-off                 - Disables the STDIN listener, no runtime commands will be processed
         --inline-scheduler          - Enables inline scheduling for TCP transport IO processing (not available when using TLS)
-        --use-os-ciphers            - Overrides pre-configured TLS ciphers with OS provided ciphers
         --no-plugins                - Disables loading of dynamic plugins
         --log-http                  - Enables logging of HTTP request and response headers to the system logger (debug builds only)
         --log-transport             - Enables logging of transport events to the system logger (debug builds only)
@@ -237,8 +241,8 @@ Starting...
         -d, --debug                 - Enables debug logging for the process and all plugins
         -vv                         - Enables very verbose logging (attaches listeners for app-domain events and logs them to the output)
 
-    Your configuration file must be a JSON encoded file and be readable to the process. You may consider keeping it in a safe location
-    outside the application and only readable to this process.
+    Your configuration file must be a JSON or YAML encoded file and be readable to the process. You may consider keeping it in a safe 
+    location outside the application and only readable to this process.
 
     You should disable hot-reload for production environments, for security and performance reasons.
 
@@ -324,21 +328,5 @@ Starting...
             return new ReleaseWebserver(logger, config, procArgs);
         }
 
-        private sealed class CertState
-        {
-            public bool CertRequired { get; set; }
-        }
-
-        private static readonly ConditionalWeakTable<X509Certificate, CertState> _cerProperties = new();
-
-        public static bool IsClientCertRequired(this X509Certificate? cert)
-        {
-            return cert != null && _cerProperties.GetOrCreateValue(cert).CertRequired;
-        }
-
-        public static bool IsClientCertRequired(this X509Certificate cert, bool value)
-        {
-            return _cerProperties.GetOrCreateValue(cert).CertRequired = value;
-        }
     }
 }

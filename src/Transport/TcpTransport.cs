@@ -123,6 +123,9 @@ namespace VNLib.WebServer.Transport
                
                 return new TcpTransportContext(_listener, descriptor, descriptor.GetStream());
             }
+
+            ///<inheritdoc/>
+            public override string ToString() => $"{Server.Config.LocalEndPoint} tcp/ip";
         }
 
         private sealed class SslTcpTransportProvider(TcpServer Server, SslServerAuthenticationOptions AuthOptions) 
@@ -177,6 +180,9 @@ namespace VNLib.WebServer.Transport
                 }
                 while (true);
             }
+
+            ///<inheritdoc/>
+            public override string ToString() => $"{Server.Config.LocalEndPoint} tcp/ip (TLS enabled)";
         }
     }
 }

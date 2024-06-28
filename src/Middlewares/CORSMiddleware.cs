@@ -148,7 +148,13 @@ namespace VNLib.WebServer.Middlewares
                 return true;
             }
 
-            if (session.IsSet || session.IsNew || session.SessionType != SessionType.Web)
+            //No session loaded, nothing to check
+            if (!session.IsSet)
+            {
+                return true;
+            }
+
+            if (session.IsNew || session.SessionType != SessionType.Web)
             {
                 return true;
             }

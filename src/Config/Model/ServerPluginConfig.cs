@@ -31,7 +31,7 @@ namespace VNLib.WebServer.Config.Model
     internal class ServerPluginConfig
     {
         [JsonPropertyName("enabled")]
-        public bool Enabled { get; set; }
+        public bool Enabled { get; set; } = true; //default to true if config is defined, then it can be assumed we want to load plugins unless explicitly disabled
 
         [Obsolete]
         [JsonPropertyName("path")]

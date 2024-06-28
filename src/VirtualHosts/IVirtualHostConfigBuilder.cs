@@ -31,11 +31,5 @@ namespace VNLib.WebServer
         /// </summary>
         /// <returns></returns>
         VirtualHostConfig GetBaseConfig();
-
-        /// <summary>
-        /// Gets the single hostname or the hostnames array for the given virtualhost configuration
-        /// </summary>
-        /// <returns>The array of hostnames, or an array of a single hostname if only one is specified</returns>
-        string[] GetHostnames();
     }
 }

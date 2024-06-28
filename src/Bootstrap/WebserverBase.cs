@@ -23,16 +23,19 @@
 */
 
 using System;
+using System.Linq;
 using System.Text.Json;
 using System.Diagnostics;
 
 using VNLib.Net.Http;
 using VNLib.Utils;
+using VNLib.Utils.Extensions;
 using VNLib.Plugins.Runtime;
 using VNLib.Plugins.Essentials.ServiceStack;
 using VNLib.Plugins.Essentials.ServiceStack.Construction;
 
 using VNLib.WebServer.Config;
+using VNLib.WebServer.Transport;
 using VNLib.WebServer.RuntimeLoading;
 
 namespace VNLib.WebServer.Bootstrap
@@ -83,22 +86,36 @@ namespace VNLib.WebServer.Bootstrap
 
             HttpConfig http = GetHttpConfig();
 
+            VirtualHostConfig[] virtualHosts = GetAllVirtualHosts();
+
             PluginStackBuilder? plugins = ConfigurePlugins();
 
             HttpServiceStackBuilder builder = new HttpServiceStackBuilder()
                                     .LoadPluginsConcurrently(loadPluginsConcurrently)
-                                    .WithDomain(LoadRoots)
-                                    .WithBuiltInHttp(TcpConfig.GetProviderForServiceGroup, http);
+                                    .WithBuiltInHttp(TcpConfig.ReduceBindingsForGroups, http)
+                                    .WithDomain(domain =>
+                                    {
+                                        domain.WithServiceGroups(vh =>
+                                        {
+                                            /*
+                                             * Must pass the virtual host configuration as the state object
+                                             * so transport providers can be loaded from a given virtual host
+                                             */
+                                            virtualHosts.ForEach(vhConfig => vh.WithVirtualHost(vhConfig, vhConfig));
+                                        });
+                                    });
 
             if (plugins != null)
             {
                 builder.WithPluginStack(plugins.ConfigureStack);
             }
 
+            PrintLogicalRouting(virtualHosts);
+
             return builder.Build();
         }
 
-        protected abstract void LoadRoots(IDomainBuilder domain);
+        protected abstract VirtualHostConfig[] GetAllVirtualHosts();
 
         protected abstract HttpConfig GetHttpConfig();
 
@@ -134,6 +151,51 @@ namespace VNLib.WebServer.Bootstrap
                 .GetAwaiter()
                 .GetResult();
         }
+
+        private void PrintLogicalRouting(VirtualHostConfig[] hosts)
+        {
+            const string header =@" 
+===================================================
+          --- HTTP Service Domain ---
+
+    {enabledRoutes} routes enabled  
+";
+
+            VariableLogFormatter sb = new(logger.AppLog, Utils.Logging.LogLevel.Information);
+            sb.AppendFormat(header, hosts.Length);
+
+            foreach (VirtualHostConfig host in hosts)
+            {
+                sb.AppendLine();
+
+                sb.AppendFormat("Virtual Host: {hostnames}\n", (object)host.Hostnames);
+                sb.AppendFormat(" Root directory {rdir}\n", host.RootDir);
+                sb.AppendLine();
+
+                //Print interfaces
+               
+                string[] interfaces = host.Transports
+                    .Select(i =>$" - {i.Address}:{i.Port} TLS: {i.Ssl}, Client cert: {i.ClientCertRequired}, OS Ciphers: {i.UseOsCiphers}")
+                    .ToArray();
+
+                sb.AppendLine(" Interfaces:");
+                sb.AppendFormat("{interfaces}", string.Join("\n", interfaces));
+                sb.AppendLine();
+
+                sb.AppendLine(" Options:");
+                sb.AppendFormat(" - Whitelist: {wl}\n", host.WhiteList);
+                sb.AppendFormat(" - Blacklist: {bl}\n", host.BlackList);
+                sb.AppendFormat(" - Path filter: {filter}\n", host.PathFilter);
+                sb.AppendFormat(" - Cache default time: {cache}\n", host.CacheDefault);
+                sb.AppendFormat(" - Cached error files: {files}\n", host.FailureFiles.Select(static p => (int)p.Key));
+                sb.AppendFormat(" - Downstream servers: {dsServers}\n", host.DownStreamServers);
+                sb.AppendFormat(" - Middlewares loaded {mw}\n", host.CustomMiddleware.Count);
+                sb.AppendLine();
+
+                sb.Flush();
+            }
+        }
+       
 
         ///<inheritdoc/>
         protected override void Free() => _serviceStack?.Dispose();

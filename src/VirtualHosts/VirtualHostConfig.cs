@@ -30,8 +30,9 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 using VNLib.Plugins.Essentials;
-using VNLib.Plugins.Essentials.ServiceStack;
 using VNLib.Plugins.Essentials.ServiceStack.Construction;
+
+using VNLib.WebServer.Config.Model;
 
 namespace VNLib.WebServer
 {
@@ -39,7 +40,7 @@ namespace VNLib.WebServer
     /// Implementation of <see cref="IEpProcessingOptions"/>
     /// with <see cref="VirtualHostHooks"/> extra processing options
     /// </summary>
-    internal sealed class VirtualHostConfig : VirtualHostConfiguration, IEpProcessingOptions, IHostTransportInfo
+    internal sealed class VirtualHostConfig : VirtualHostConfiguration, IEpProcessingOptions
     {
         public VirtualHostConfig()
         {
@@ -59,16 +60,11 @@ namespace VNLib.WebServer
         /// A regex filter instance to filter incoming filesystem paths
         /// </summary>
         public Regex? PathFilter { get; init; }
-      
-        /// <summary>
-        /// An optional whitelist set of ipaddresses that are allowed to make connections to this site
-        /// </summary>
-        public FrozenSet<IPAddress>? WhiteList { get; init; }
-       
+
         /// <summary>
         /// The default response entity cache value
         /// </summary>
-        public TimeSpan CacheDefault { get; init; }
+        public required TimeSpan CacheDefault { get; init; }
 
         /// <summary>
         /// A collection of in-memory files to send in response to processing error
@@ -87,9 +83,19 @@ namespace VNLib.WebServer
         public FrozenDictionary<string, string> SpecialHeaders { get; init; } = new Dictionary<string, string>().ToFrozenDictionary();
 
         /// <summary>
-        /// Creaets a new instance of <see cref="VirtualHostConfig"/> with the same values as the current instance
+        /// The array of interfaces the host wishes to listen on
         /// </summary>
-        /// <returns></returns>
-        public VirtualHostConfig Clone() => (VirtualHostConfig)MemberwiseClone();
+        internal required TransportInterface[] Transports { get; init; }
+
+        /// <summary>
+        /// An optional whitelist set of ipaddresses that are allowed to make connections to this site
+        /// </summary>
+        internal required FrozenSet<IPAddress>? WhiteList { get; init; }
+
+        /// <summary>
+        /// An optional blacklist set of ipaddresses that are not allowed to make connections to this site
+        /// </summary>
+        internal required FrozenSet<IPAddress>? BlackList { get; init; }
+
     }
 }

@@ -28,8 +28,8 @@ using System.Net;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
 
-using VNLib.Utils.IO;
 using VNLib.Utils.Memory;
+using VNLib.Utils.Resources;
 
 namespace VNLib.WebServer.Config.Model
 {
@@ -59,6 +59,9 @@ namespace VNLib.WebServer.Config.Model
         [JsonPropertyName("password")]
         public string? PrivKeyPassword { get; set; }
 
+        [JsonPropertyName("use_os_ciphers")]
+        public bool UseOsCiphers { get; set; }
+
         public IPEndPoint GetEndpoint()
         {
             IPAddress addr = string.IsNullOrEmpty(Address) ? IPAddress.Any : IPAddress.Parse(Address);
@@ -73,7 +76,7 @@ namespace VNLib.WebServer.Config.Model
             }
 
             Validate.EnsureNotNull(Cert, "TLS Certificate is required when ssl is enabled");
-            Validate.Assert(FileOperations.FileExists(Cert), "TLS Certificate file could not found");
+            Validate.FileExists(Cert);
 
             X509Certificate? cert = null;
 
@@ -90,8 +93,7 @@ namespace VNLib.WebServer.Config.Model
             else
             {
                 Validate.EnsureNotNull(PrivKey, "TLS Private Key is required ssl is enabled");
-               
-                Validate.Assert(FileOperations.FileExists(PrivKey), "TLS Private Key file could not found");
+                Validate.FileExists(PrivKey);
 
                 /*
                  * Attempt to capture the private key password. This will wrap the 
@@ -120,5 +122,16 @@ namespace VNLib.WebServer.Config.Model
 
             return cert;
         }
+
+        /// <summary>
+        /// Builds a deterministic hash-code base on the configuration state. 
+        /// </summary>
+        /// <returns>The hash-code that represents the current instance</returns>
+        public override int GetHashCode() => HashCode.Combine(Address, Port);
+
+        public override bool Equals(object? obj) => obj is TransportInterface iface && GetHashCode() == iface.GetHashCode();
+
+        public override string ToString() => $"[{Address}:{Port}]";
+
     }
 }

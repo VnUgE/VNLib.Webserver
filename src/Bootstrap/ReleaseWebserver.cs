@@ -23,7 +23,6 @@
 */
 
 using System;
-using System.Net;
 using System.Data;
 using System.Linq;
 using System.Text;
@@ -34,14 +33,12 @@ using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
 using VNLib.Net.Http;
 using VNLib.Plugins.Runtime;
-using VNLib.Plugins.Essentials.ServiceStack.Construction;
 
 using VNLib.WebServer.Config;
 using VNLib.WebServer.Config.Model;
 using VNLib.WebServer.Plugins;
 using VNLib.WebServer.Compression;
 using VNLib.WebServer.Middlewares;
-using VNLib.WebServer.TcpMemoryPool;
 using VNLib.WebServer.RuntimeLoading;
 using static VNLib.WebServer.Entry;
 
@@ -57,21 +54,6 @@ namespace VNLib.WebServer.Bootstrap
     internal class ReleaseWebserver(ServerLogger logger, IServerConfig config, ProcessArguments procArgs)
         : WebserverBase(logger, config, procArgs)
     {
-        const string FOUND_VH_TEMPLATE =
-@"
---------------------------------------------------
- |           Found virtual host:
- | Hostnames: {hn}
- | Directory: {dir}
- | Interface: {ep}
- | Trace connections: {tc}
- | SSL: {ssl}, Client cert required: {cc}
- | Whitelist entries: {wl}
- | Downstream servers: {ds}
- | CORS Enabled: {enlb}
- | Allowed CORS sites: {cors}
- | Cached error files: {ef}
---------------------------------------------------";
 
         const string PLUGIN_DATA_TEMPLATE =
 @"
@@ -91,7 +73,7 @@ namespace VNLib.WebServer.Bootstrap
             //do not load plugins if disabled
             if (args.HasArgument("--no-plugins"))
             {
-                logger.AppLog.Information("Plugin loading disabled via options flag");
+                logger.AppLog.Information("Plugin loading disabled via command-line flag");
                 return null;
             }
 
@@ -108,7 +90,7 @@ namespace VNLib.WebServer.Bootstrap
 
             if (!conf.Enabled)
             {
-                logger.AppLog.Information("Plugin loading disabled via config");
+                logger.AppLog.Information("Plugin loading disabled via configuration flag");
                 return null;
             }
 
@@ -134,7 +116,7 @@ namespace VNLib.WebServer.Bootstrap
             
             if (conf.HotReload)
             {
-                Validate.EnsureRange(conf.ReloadDelaySec, 1, 60);
+                Validate.EnsureRange(conf.ReloadDelaySec, 1, 120);
 
                 pluginBuilder.EnableHotReload(TimeSpan.FromSeconds(conf.ReloadDelaySec));
             }
@@ -148,8 +130,7 @@ namespace VNLib.WebServer.Bootstrap
             );
            
             return pluginBuilder;
-        }
-       
+        }       
 
         ///<inheritdoc/>
         protected override HttpConfig GetHttpConfig()
@@ -166,9 +147,9 @@ namespace VNLib.WebServer.Bootstrap
                 //Attempt to load the compressor manager, if null, compression is disabled
                 IHttpCompressorManager? compressorManager = HttpCompressor.LoadOrDefaultCompressor(procArgs, gConf.Compression, config, logger.AppLog);
 
-                IHttpMemoryPool memPool = PoolManager.GetHttpPool(procArgs.ZeroAllocations);
+                IHttpMemoryPool memPool = MemoryPoolManager.GetHttpPool(procArgs.ZeroAllocations);
 
-                HttpConfig conf = new(logger.SysLog, memPool, Encoding.ASCII)
+                HttpConfig conf = new(Encoding.ASCII)
                 {
                     ActiveConnectionRecvTimeout     = gConf.RecvTimeoutMs,
                     CompressorManager               = compressorManager,
@@ -183,6 +164,8 @@ namespace VNLib.WebServer.Bootstrap
                     MaxOpenConnections              = gConf.MaxConnections,                    
                     MaxUploadsPerRequest            = gConf.MaxUploadsPerRequest,
                     SendTimeout                     = gConf.SendTimeoutMs,
+                    ServerLog                       = logger.AppLog,
+                    MemoryPool                      = memPool,
 
                     RequestDebugLog                 = procArgs.LogHttp ? logger.AppLog : null,
 
@@ -212,7 +195,7 @@ namespace VNLib.WebServer.Bootstrap
                 };
 
                 Validate.Assert(
-                    condition: conf.DefaultHttpVersion != Net.Http.HttpVersion.None,
+                    condition: conf.DefaultHttpVersion != HttpVersion.None,
                     message: "Your default HTTP version is invalid, specify an RFC formatted http version 'HTTP/x.x'"
                 );
 
@@ -225,47 +208,40 @@ namespace VNLib.WebServer.Bootstrap
             }
         }
 
-        protected override void LoadRoots(IDomainBuilder domain)
+        ///<inheritdoc/>
+        protected override VirtualHostConfig[] GetAllVirtualHosts()
         {
             JsonElement rootEl = config.GetDocumentRoot();
             ILogProvider log = logger.AppLog;
+
+            LinkedList<VirtualHostConfig> configs = new();
 
             try
             {
                 //execution timeout
                 TimeSpan execTimeout = rootEl.GetProperty(SESSION_TIMEOUT_PROP_NAME).GetTimeSpan(TimeParseType.Milliseconds);
 
-                if(!rootEl.TryGetProperty("virtual_hosts", out _))
-                {
-                    log.Warn("No virtual hosts array was defined. Continuing without hosts");
-                    return;
-                }
-
                 int index = 0;
 
                 //Enumerate all virtual host configurations
-                foreach (JsonElement vhElement in rootEl.GetProperty("virtual_hosts").EnumerateArray())
+                foreach (VirtualHostServerConfig vhConfig in GetVirtualHosts())
                 {
-                    //Inint config builder
-                    JsonWebConfigBuilder builder = new (index, vhElement, execTimeout, log);
-
-                    //Load the base configuration and hostname list
-                    VirtualHostConfig conf = builder.GetBaseConfig();
-                    string[] hostnames = builder.GetHostnames();
+               
+                    VirtualHostConfig conf = new JsonWebConfigBuilder(vhConfig, execTimeout, log).GetBaseConfig();
 
                     //Configure event hooks
                     conf.EventHooks = new VirtualHostHooks(conf);
 
                     //Init middleware stack
-                    conf.CustomMiddleware.Add(new MainServerMiddlware(log, conf, builder.VhConfig.ForcePortCheck));
+                    conf.CustomMiddleware.Add(new MainServerMiddlware(log, conf, vhConfig.ForcePortCheck));
 
                     /*
                      * In benchmark mode, skip other middleware that might slow connections down
                      */
-                    if (builder.VhConfig.Benchmark?.Enabled == true)
+                    if (vhConfig.Benchmark?.Enabled == true)
                     {
-                        conf.CustomMiddleware.Add(new BenchmarkMiddleware(builder.VhConfig.Benchmark));
-                        log.Information("BENCHMARK: Enabled for virtual host {vh}", conf.Hostname);
+                        conf.CustomMiddleware.Add(new BenchmarkMiddleware(vhConfig.Benchmark));
+                        log.Information("BENCHMARK: Enabled for virtual host {vh}", conf.Hostnames);
                     }
                     else
                     {
@@ -275,19 +251,25 @@ namespace VNLib.WebServer.Bootstrap
                          * 
                          * Only add the middleware if the confg has a value for the allow cors property
                          */
-                        if (builder.VhConfig.Cors?.Enabled == true)
+                        if (vhConfig.Cors?.Enabled == true)
                         {
-                            conf.CustomMiddleware.Add(new CORSMiddleware(log, builder.VhConfig.Cors));
+                            conf.CustomMiddleware.Add(new CORSMiddleware(log, vhConfig.Cors));
                         }
 
                         //Add whitelist middleware if the configuration has a whitelist
                         if (conf.WhiteList != null)
                         {
-                            conf.CustomMiddleware.Add(new WhitelistMiddleware(log, conf.WhiteList));
+                            conf.CustomMiddleware.Add(new IpWhitelistMiddleware(log, conf.WhiteList));
+                        }
+
+                        //Add blacklist middleware if the configuration has a blacklist
+                        if (conf.BlackList != null)
+                        {
+                            conf.CustomMiddleware.Add(new IpBlacklistMiddleware(log, conf.BlackList));
                         }
 
                         //Add tracing middleware if enabled
-                        if (builder.VhConfig.RequestTrace)
+                        if (vhConfig.RequestTrace)
                         {
                             conf.CustomMiddleware.Add(new ConnectionLogMiddleware(log));
                         }
@@ -298,33 +280,7 @@ namespace VNLib.WebServer.Bootstrap
                         conf.RootDir.Create();
                     }
 
-                    //Get all virtual hosts configurations and add them to the domain
-                    foreach (string hostname in hostnames)
-                    {
-                        VirtualHostConfig clone = conf.Clone();
-                        clone.Hostname = hostname.Replace(LOAD_DEFAULT_HOSTNAME_VALUE, Dns.GetHostName(), StringComparison.OrdinalIgnoreCase);
-                        //Add each config with new hostname to the domain
-                        domain.WithVirtualHost(clone);
-                    }
-
-                    //print found host to log
-                    {
-                        //Log the 
-                        log.Information(
-                            FOUND_VH_TEMPLATE,
-                            hostnames,
-                            conf.RootDir.FullName,
-                            conf.TransportEndpoint,
-                            builder.VhConfig.RequestTrace,
-                            conf.Certificate != null,
-                            conf.Certificate.IsClientCertRequired(),
-                            conf.WhiteList?.ToArray(),
-                            conf.DownStreamServers?.ToArray(),
-                            builder.VhConfig.Cors?.Enabled == true,
-                            builder.VhConfig.Cors?.AllowedCorsAuthority,
-                            conf.FailureFiles.Select(p => (int)p.Key).ToArray()
-                        );
-                    }
+                    configs.AddLast(conf);
 
                     index++;
                 }
@@ -336,6 +292,38 @@ namespace VNLib.WebServer.Bootstrap
             catch (FormatException fe)
             {
                 throw new ServerConfigurationException("Failed to parse IP address", fe);
+            }
+
+            return configs.ToArray();
+        }
+
+        private VirtualHostServerConfig[] GetVirtualHosts()
+        {
+            JsonElement rootEl = config.GetDocumentRoot();
+            ILogProvider log = logger.AppLog;
+
+            if (!rootEl.TryGetProperty("virtual_hosts", out _))
+            {
+                log.Warn("No virtual hosts array was defined. Continuing without hosts");
+                return [];
+            }
+
+            return rootEl.GetProperty("virtual_hosts")
+                .EnumerateArray()
+                .Select(GetVhConfig)
+                .ToArray();
+
+
+            static VirtualHostServerConfig GetVhConfig(JsonElement rootEl)
+            {
+                VirtualHostServerConfig? conf = rootEl.DeserializeElement<VirtualHostServerConfig>();
+
+                Validate.EnsureNotNull(conf, "Empty virtual host configuration, check your virtual hosts array for an empty element");
+                Validate.EnsureNotNull(conf.DirPath, "A virtual host was defined without a root directory property: 'dirPath'");
+                Validate.EnsureNotNull(conf.Hostnames, "A virtual host was defined without a hostname property: 'hostnames'");
+                Validate.EnsureNotNull(conf.Interfaces, "An interface configuration is required for every virtual host");
+
+                return conf;
             }
         }
     }

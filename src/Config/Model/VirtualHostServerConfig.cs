@@ -40,8 +40,8 @@ namespace VNLib.WebServer.Config.Model
         [JsonPropertyName("benchmark")]
         public BenchmarkConfig? Benchmark { get; set; }
 
-        [JsonPropertyName("interface")]
-        public TransportInterface? Interface { get; set; }
+        [JsonPropertyName("interfaces")]
+        public TransportInterface[] Interfaces { get; set; } = Array.Empty<TransportInterface>();
 
         [JsonPropertyName("hostnames")]
         public string[]? Hostnames { get; set; } = Array.Empty<string>();
@@ -67,6 +67,9 @@ namespace VNLib.WebServer.Config.Model
 
         [JsonPropertyName("whitelist")]
         public string[]? Whitelist { get; set; }
+
+        [JsonPropertyName("blacklist")]
+        public string[]? Blacklist { get; set; }
 
         [JsonPropertyName("deny_extensions")]
         public string[]? DenyExtensions { get; set; }

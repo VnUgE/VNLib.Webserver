@@ -27,11 +27,9 @@ using System.IO;
 using System.Net;
 using System.Data;
 using System.Linq;
-using System.Text.Json;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using System.Security.Cryptography.X509Certificates;
 
 using VNLib.Utils.Logging;
 using VNLib.Utils.Extensions;
@@ -40,83 +38,69 @@ using VNLib.WebServer.Config;
 using VNLib.WebServer.Config.Model;
 
 namespace VNLib.WebServer
-{
+{   
 
-    internal sealed partial class JsonWebConfigBuilder(int index, JsonElement rootEl, TimeSpan execTimeout, ILogProvider logger) 
+    internal sealed partial class JsonWebConfigBuilder(VirtualHostServerConfig VhConfig, TimeSpan execTimeout, ILogProvider logger) 
         : IVirtualHostConfigBuilder
     {
         //Use pre-compiled default regex
         private static readonly Regex DefaultRootRegex = MyRegex();
-
-        public readonly VirtualHostServerConfig VhConfig = GetVhConfig(rootEl);
-
-        private static VirtualHostServerConfig GetVhConfig(JsonElement rootEl)
-        {
-            VirtualHostServerConfig? conf = rootEl.DeserializeElement<VirtualHostServerConfig>();
-
-            Validate.EnsureNotNull(conf, "Empty virtual host configuration, check your virtual hosts array for an empty element");
-            Validate.EnsureNotNull(conf.DirPath, "A virtual host was defined without a root directory property: 'dirPath'");
-            Validate.EnsureNotNull(conf.Hostnames, "A virtual host was defined without a hostname property: 'hostnames'");
-            Validate.EnsureNotNull(conf.Interface, "An interface configuration is required for every virtual host");
-
-            return conf;
-        }
        
         ///<inheritdoc/>
         public VirtualHostConfig GetBaseConfig()
         {
-            TransportInterface transport = GetInterface(VhConfig);
-
-            X509Certificate? cert = transport.LoadCertificate();
-
-            //Set cert state for client cert required
-            cert?.IsClientCertRequired(transport.ClientCertRequired);
-
             //Declare the vh config
             return new()
             {
                 //File root is required
                 RootDir                 = new(VhConfig.DirPath!),
                 LogProvider             = logger,
-                Certificate             = cert,
                 ExecutionTimeout        = execTimeout,
-                WhiteList               = GetWhitelist(VhConfig),
+                WhiteList               = GetIpWhitelist(VhConfig),
                 DownStreamServers       = GetDownStreamServers(VhConfig),
                 ExcludedExtensions      = GetExlcudedExtensions(VhConfig),
                 DefaultFiles            = GetDefaultFiles(VhConfig),
-                TransportEndpoint       = transport.GetEndpoint(),
                 PathFilter              = GetPathFilter(VhConfig),
                 CacheDefault            = TimeSpan.FromSeconds(VhConfig.CacheDefaultTimeSeconds),
                 AdditionalHeaders       = GetConfigHeaders(VhConfig),
                 SpecialHeaders          = GetSpecialHeaders(VhConfig),
                 FailureFiles            = GetFailureFiles(VhConfig),
-
-                //Hostname is ignored incase its an array of multiple names
+                FilePathCacheMaxAge     = TimeSpan.MaxValue,
+                Hostnames               = GetHostnames(VhConfig),
+                Transports              = GetInterfaces(VhConfig),
+                BlackList               = GetIpBlacklist(VhConfig),
             };
         }
-    
-        public string[] GetHostnames()
+
+        private static string[] GetHostnames(VirtualHostServerConfig conf)
         {
-            //Try to get the array element first
-            if (VhConfig.Hostnames is null || VhConfig.Hostnames.Length < 1)
+            Validate.EnsureNotNull(conf.Hostnames, "Hostnames array was set to null, you must define at least one hostname");
+
+            foreach (string hostname in conf.Hostnames)
             {
-                throw new ServerConfigurationException($"Missing the hostname or hostnames array virtual host {index}");
+                Validate.EnsureNotNull(hostname, "Hostname is null, all hostnames must be defined");
             }
 
-            return VhConfig.Hostnames;
+            return conf.Hostnames;
         }
 
-        private static TransportInterface GetInterface(VirtualHostServerConfig conf)
+        private static TransportInterface[] GetInterfaces(VirtualHostServerConfig conf)
         {
-            TransportInterface iFace = conf.Interface!;
+            Validate.EnsureNotNull(conf.Interfaces, "Interfaces array was set to null, you must define at least one network interface");
+            Validate.Assert(conf.Interfaces.Length > 0, $"You must define at least one interface for host");
 
-            Validate.EnsureNotNull(iFace, "The interface configuration is required");
+            for(int i = 0; i < conf.Interfaces.Length; i++)
+            {
+                TransportInterface iFace = conf.Interfaces[i];
 
-            Validate.EnsureNotNull(iFace.Address, "The interface IP address is required");
-            Validate.EnsureValidIp(iFace.Address, "The interface IP address is invalid");
-            Validate.EnsureRange(iFace.Port, 1, 65535, "Interface port");
+                Validate.EnsureNotNull(iFace, $"Vrtual host interface [{i}] is undefined");
 
-            return iFace;
+                Validate.EnsureNotNull(iFace.Address, $"The interface IP address is required for interface [{i}]");
+                Validate.EnsureValidIp(iFace.Address, $"The interface IP address is invalid for interface [{i}]");
+                Validate.EnsureRange(iFace.Port, 1, 65535, "Interface port");
+            }
+
+            return conf.Interfaces;
         }
 
         private static Regex GetPathFilter(VirtualHostServerConfig conf)
@@ -146,16 +130,18 @@ namespace VNLib.WebServer
                 }).ToArray();
 
             //Only include files that exist and were loaded
-            int loadedFiles = loadCache.Where(static loadCache => loadCache.Item3 != null)
-                    .Count();
+            int loadedFiles = loadCache
+                .Where(static loadCache => loadCache.Item3 != null)
+                .Count();
 
-            string[] notFoundFiles = loadCache.Where(static loadCache => loadCache.Item3 == null)
-                    .Select(static l => Path.GetFileName(l.Item2))
-                    .ToArray();
+            string[] notFoundFiles = loadCache
+                .Where(static loadCache => loadCache.Item3 == null)
+                .Select(static l => Path.GetFileName(l.Item2))
+                .ToArray();
 
             if (notFoundFiles.Length > 0)
             {
-                logger.Warn("Failed to load error files {files} for host {hosts}", notFoundFiles, GetHostnames());
+                logger.Warn("Failed to load error files {files} for host {hosts}", notFoundFiles, conf.Hostnames);
             }
 
             //init frozen dictionary from valid cached files
@@ -183,7 +169,7 @@ namespace VNLib.WebServer
             return (downstreamServers ?? []).ToFrozenSet();
         }
 
-        private static FrozenSet<IPAddress>? GetWhitelist(VirtualHostServerConfig conf)
+        private static FrozenSet<IPAddress>? GetIpWhitelist(VirtualHostServerConfig conf)
         {
             if(conf.Whitelist is null)
             {
@@ -198,15 +184,31 @@ namespace VNLib.WebServer
                     .ToFrozenSet();
         }
 
+        private static FrozenSet<IPAddress>? GetIpBlacklist(VirtualHostServerConfig conf)
+        {
+            if (conf.Blacklist is null)
+            {
+                return null;
+            }
+
+            //See if whitelist is defined, if so, get a distinct list of addresses
+            return conf.Blacklist.Where(static addr => !string.IsNullOrWhiteSpace(addr))
+                    .Select(static addr => IPAddress.Parse(addr))
+                    .Distinct()
+                    .ToHashSet()
+                    .ToFrozenSet();
+        }
+
         private static FrozenSet<string> GetExlcudedExtensions(VirtualHostServerConfig conf)
         {
             //Get exlucded/denied extensions from config, ignore null strings
             if (conf.DenyExtensions is not null)
             {
-                return conf.DenyExtensions.Where(static s => !string.IsNullOrWhiteSpace(s))
-                        .Distinct()
-                        .ToHashSet()
-                        .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+                return conf.DenyExtensions
+                    .Where(static s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct()
+                    .ToHashSet()
+                    .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
             }
             else
             {

@@ -32,18 +32,14 @@ using VNLib.Plugins.Essentials.Middleware;
 
 namespace VNLib.WebServer.Middlewares
 {
-    /*
-     * Middelware that matches clients real ip addresses against a whitelist
-     * and blocks them if they are not on the list
-     */
     [MiddlewareImpl(MiddlewareImplOptions.SecurityCritical)]
-    internal sealed class WhitelistMiddleware(ILogProvider Log, FrozenSet<IPAddress> WhiteList) : IHttpMiddleware
+    internal sealed class IpBlacklistMiddleware(ILogProvider Log, FrozenSet<IPAddress> Blacklist) : IHttpMiddleware
     {
         public ValueTask<FileProcessArgs> ProcessAsync(HttpEntity entity)
         {
-            if (!WhiteList.Contains(entity.TrustedRemoteIp))
+            if (Blacklist.Contains(entity.TrustedRemoteIp))
             {
-                Log.Verbose("Client {ip} is not whitelisted, blocked", entity.TrustedRemoteIp);
+                Log.Verbose("Client {ip} is blacklisted, blocked", entity.TrustedRemoteIp);
                 return ValueTask.FromResult(FileProcessArgs.Deny);
             }
 

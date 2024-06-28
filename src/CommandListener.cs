@@ -32,6 +32,7 @@ using VNLib.Utils.Extensions;
 using VNLib.Utils.Memory.Diagnostics;
 using VNLib.Net.Http;
 using VNLib.Plugins.Essentials.ServiceStack;
+using VNLib.Plugins.Essentials.ServiceStack.Plugins;
 
 using VNLib.WebServer.Bootstrap;
 

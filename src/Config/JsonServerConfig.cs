@@ -39,6 +39,9 @@ namespace VNLib.WebServer.Config
 
         public static JsonServerConfig? FromFile(string filename)
         {
+            string nameOnly = Path.GetFileName(filename);
+            Console.WriteLine("Loading configuration file from {0}", nameOnly);
+
             if (filename.EndsWith(".json"))
             {
                 return FromJson(filename);
